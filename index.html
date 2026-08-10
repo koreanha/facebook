@@ -1,0 +1,1790 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>페이스북 게시물 책자 만들기</title>
+<meta name="description" content="페이스북에서 내려받은 내 데이터를 편집해 인쇄용 PDF 책자로 만드는 웹앱. 모든 처리는 브라우저 안에서만 이루어집니다.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%98%3C/text%3E%3C/svg%3E">
+<style>
+/* ---------------------------------------------------------------- 기본 */
+:root{
+  --bg:#f5f6f8; --panel:#ffffff; --ink:#1c1e21; --muted:#65676b; --line:#dcdfe3;
+  --brand:#1877f2; --brand-ink:#ffffff; --ok:#1a7f37; --warn:#9a6700; --err:#c0362c;
+  --radius:10px; --shadow:0 1px 2px rgba(0,0,0,.06),0 6px 20px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16181c; --panel:#1f2226; --ink:#e6e8ea; --muted:#9aa0a6; --line:#343840;
+    --brand:#4a9bff; --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.3);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:'Pretendard','Apple SD Gothic Neo','Malgun Gothic','맑은 고딕','Noto Sans KR',system-ui,-apple-system,sans-serif;
+  font-size:14px; line-height:1.5;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--brand)}
+h1,h2,h3{margin:0}
+
+/* ---------------------------------------------------------------- 셸 */
+.topbar{
+  position:sticky; top:0; z-index:50; background:var(--panel); border-bottom:1px solid var(--line);
+  display:flex; align-items:center; gap:14px; padding:10px 16px; flex-wrap:wrap;
+}
+.logo{font-weight:800; font-size:16px; letter-spacing:-.02em; white-space:nowrap}
+.logo span{color:var(--brand)}
+.topbar .spacer{flex:1}
+.tabs{display:flex; gap:4px; flex-wrap:wrap}
+.tab{
+  border:1px solid transparent; background:transparent; color:var(--muted);
+  padding:7px 13px; border-radius:999px; cursor:pointer; font-weight:600; white-space:nowrap;
+}
+.tab:hover{background:rgba(127,127,127,.12)}
+.tab.active{background:var(--brand); color:var(--brand-ink)}
+.tab[disabled]{opacity:.4; cursor:not-allowed}
+.tab .num{
+  display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+  border-radius:50%;background:rgba(127,127,127,.25);font-size:11px;margin-right:6px;
+}
+.tab.active .num{background:rgba(255,255,255,.28)}
+
+main{max-width:1180px; margin:0 auto; padding:20px 16px 80px}
+.view{display:none}
+.view.active{display:block}
+
+.card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:18px; margin-bottom:16px}
+.card h2{font-size:16px; margin-bottom:4px}
+.card .sub{color:var(--muted); font-size:13px; margin-bottom:14px}
+
+.btn{
+  border:1px solid var(--line); background:var(--panel); color:var(--ink);
+  padding:8px 14px; border-radius:8px; cursor:pointer; font-weight:600;
+}
+.btn:hover{border-color:var(--brand)}
+.btn.primary{background:var(--brand); color:#fff; border-color:var(--brand)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.sm{padding:5px 10px; font-size:12.5px; border-radius:6px; font-weight:500}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+.row{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+
+.note{border-left:3px solid var(--brand); background:rgba(24,119,242,.07); padding:10px 12px; border-radius:0 8px 8px 0; font-size:13px; color:var(--muted); margin:12px 0}
+.note.warn{border-color:var(--warn); background:rgba(154,103,0,.09)}
+.note b{color:var(--ink)}
+.note ol,.note ul{margin:6px 0 0; padding-left:20px}
+.note li{margin:3px 0}
+
+/* ---------------------------------------------------------------- 1단계 */
+.drop{
+  border:2px dashed var(--line); border-radius:14px; padding:34px 20px; text-align:center;
+  background:rgba(127,127,127,.03); cursor:pointer; transition:.15s;
+}
+.drop:hover,.drop.over{border-color:var(--brand); background:rgba(24,119,242,.06)}
+.drop .big{font-size:16px; font-weight:700; margin-bottom:6px}
+.drop .small{color:var(--muted); font-size:13px}
+.drop .icon{font-size:34px; line-height:1; margin-bottom:10px}
+
+details.acc{border:1px solid var(--line); border-radius:8px; padding:0; margin-top:12px; overflow:hidden}
+details.acc>summary{cursor:pointer; padding:11px 14px; font-weight:600; background:rgba(127,127,127,.05); list-style:none}
+details.acc>summary::-webkit-details-marker{display:none}
+details.acc>summary::before{content:"▸ "; color:var(--muted)}
+details.acc[open]>summary::before{content:"▾ "}
+details.acc .body{padding:14px; border-top:1px solid var(--line)}
+
+.progress{height:6px; background:rgba(127,127,127,.2); border-radius:99px; overflow:hidden; margin-top:12px; display:none}
+.progress.on{display:block}
+.progress i{display:block; height:100%; background:var(--brand); width:0%; transition:width .2s}
+#loadLog{font-size:12.5px; color:var(--muted); margin-top:10px; white-space:pre-wrap; font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-top:14px}
+.stat{background:rgba(127,127,127,.06); border-radius:8px; padding:10px 12px}
+.stat .k{font-size:12px; color:var(--muted)}
+.stat .v{font-size:19px; font-weight:800}
+
+/* ---------------------------------------------------------------- 2단계 */
+.filters{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; align-items:end}
+.f label{display:block; font-size:12px; color:var(--muted); margin-bottom:4px}
+.f input,.f select{width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:var(--panel)}
+.postlist{display:flex; flex-direction:column; gap:10px}
+.post{border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:12px 14px}
+.post.off{opacity:.5}
+.post .head{display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap}
+.post .date{font-weight:700; font-size:13px}
+.post .badge{font-size:11px; padding:2px 7px; border-radius:99px; background:rgba(127,127,127,.15); color:var(--muted)}
+.post .head .spacer{flex:1}
+.post textarea{
+  width:100%; min-height:70px; resize:vertical; padding:9px 10px;
+  border:1px solid var(--line); border-radius:8px; background:transparent; line-height:1.6;
+}
+.post .thumbs{display:flex; gap:6px; flex-wrap:wrap; margin-top:8px}
+.post .thumbs img{width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid var(--line)}
+.post .thumbs .ph{width:64px;height:64px;border-radius:6px;border:1px dashed var(--line);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted);text-align:center;padding:4px}
+.post .edited{color:var(--warn); font-size:11px}
+.pager{display:flex; gap:8px; justify-content:center; align-items:center; margin-top:14px; color:var(--muted)}
+
+/* ---------------------------------------------------------------- 3단계 */
+.grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px}
+.fld{display:flex; flex-direction:column; gap:5px}
+.fld>label{font-size:12px; color:var(--muted); font-weight:600}
+.fld input[type=text],.fld input[type=number],.fld select,.fld textarea{
+  padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--panel); width:100%;
+}
+.fld .hint{font-size:11.5px; color:var(--muted)}
+.chk{display:flex; align-items:center; gap:8px; padding:6px 0}
+.chk input{width:16px;height:16px}
+.rangeRow{display:flex;align-items:center;gap:10px}
+.rangeRow input[type=range]{flex:1}
+.rangeRow output{min-width:52px; text-align:right; font-variant-numeric:tabular-nums; color:var(--muted)}
+
+/* ---------------------------------------------------------------- 4단계 */
+.previewbar{
+  position:sticky; top:53px; z-index:40; background:var(--panel); border:1px solid var(--line);
+  border-radius:var(--radius); padding:10px 14px; margin-bottom:16px; display:flex; gap:10px;
+  align-items:center; flex-wrap:wrap; box-shadow:var(--shadow);
+}
+.previewbar .info{color:var(--muted); font-size:13px}
+#bookWrap{display:flex; flex-direction:column; align-items:center; gap:18px}
+
+/* ---------------------------------------------------------------- 책 */
+.book{
+  --fs:10.5pt; --lh:1.75; --ff:'Noto Serif KR','Nanum Myeongjo','Batang','바탕',serif;
+  --ink2:#111; --muted2:#666; --rule:#d8d8d8;
+  display:flex; flex-direction:column; align-items:center; gap:18px; width:100%;
+}
+.page{
+  position:relative; background:#fff; color:var(--ink2); box-shadow:0 2px 14px rgba(0,0,0,.18);
+  overflow:hidden; flex:0 0 auto;
+}
+.page-inner{position:absolute; inset:0; display:flex; flex-direction:column}
+.rh{flex:0 0 auto; display:flex; justify-content:space-between; align-items:flex-end;
+    font-size:8pt; color:var(--muted2); font-family:var(--ff); letter-spacing:.02em}
+.pf{flex:0 0 auto; display:flex; align-items:flex-start; font-size:9pt; color:var(--muted2); font-family:var(--ff)}
+.pf.center{justify-content:center}
+.pf.outer-l{justify-content:flex-start}
+.pf.outer-r{justify-content:flex-end}
+.cols{flex:1 1 auto; display:flex; align-items:stretch; overflow:hidden}
+.col{flex:1 1 0; min-width:0; overflow:hidden; font-family:var(--ff); font-size:var(--fs); line-height:var(--lh); color:var(--ink2)}
+.measure{position:absolute; left:0; top:0; visibility:hidden; pointer-events:none; z-index:-1}
+/* 중철 소책자 모아찍기 */
+.sheet{position:relative; background:#fff; box-shadow:0 2px 14px rgba(0,0,0,.18); display:flex; flex:0 0 auto}
+.sheet .page{box-shadow:none; flex:0 0 auto}
+.sheet .page.blank{background:#fff}
+.sheet .fold{position:absolute; left:50%; top:0; bottom:0; width:0; border-left:1px dashed #d0d0d0; pointer-events:none}
+
+/* 책 내부 요소 */
+.b-chapter{padding:0 0 6mm; text-align:center}
+.b-chapter .t{font-size:1.9em; font-weight:700; letter-spacing:-.02em}
+.b-chapter .l{width:28mm; height:1px; background:var(--rule); margin:4mm auto 0}
+.b-ptitle{padding:0 0 2mm; font-size:.92em; color:var(--muted2); letter-spacing:.02em}
+.b-ptitle .h{font-weight:700; color:var(--ink2); font-size:1.05em; display:block; letter-spacing:-.01em}
+.b-para{padding:0 0 1.1em; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; text-align:justify}
+.b-para.indent{text-indent:1em}
+.b-fig{padding:0 0 1.2em; text-align:center}
+.b-fig img{display:block; margin:0 auto; object-fit:contain; background:#f2f2f2}
+.b-fig .cap{font-size:.8em; color:var(--muted2); padding-top:1.5mm; text-align:center}
+.b-meta{padding:0 0 1.1em; font-size:.82em; color:var(--muted2); word-break:break-all}
+.b-rule{padding:0 0 1.4em}
+.b-rule i{display:block; width:18mm; height:1px; background:var(--rule); margin:0 auto}
+.b-space{padding:0 0 6mm}
+.b-toc-h{padding:0 0 7mm; text-align:center; font-size:1.6em; font-weight:700}
+.b-toc{display:flex; gap:.5em; align-items:baseline; padding:0 0 .55em; font-size:.92em}
+.b-toc .tt{flex:0 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:78%}
+.b-toc .dots{flex:1 1 auto; border-bottom:1px dotted var(--rule); transform:translateY(-.25em)}
+.b-toc .pp{flex:0 0 auto; font-variant-numeric:tabular-nums; color:var(--muted2)}
+
+/* 표지 */
+.cover{display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;
+       height:100%; font-family:var(--ff); color:var(--ink2); padding:0 12mm}
+.cover .ct{font-size:2.6em; font-weight:800; line-height:1.25; letter-spacing:-.03em}
+.cover .cs{font-size:1.15em; color:var(--muted2); margin-top:5mm}
+.cover .cl{width:32mm;height:2px;background:var(--ink2);margin:9mm auto}
+.cover .ca{font-size:1.05em; margin-top:2mm}
+.cover .cd{font-size:.92em; color:var(--muted2); margin-top:2mm; font-variant-numeric:tabular-nums}
+.cover img.cimg{max-width:70%; max-height:38%; object-fit:contain; margin-bottom:8mm}
+
+/* ---------------------------------------------------------------- 인쇄 */
+@media print{
+  @page{ margin:0 }
+  html,body{background:#fff !important; margin:0 !important; padding:0 !important}
+  .topbar,.previewbar,main>.view:not(.active),#tab-load,#tab-posts,#tab-design,.noprint{display:none !important}
+  main{max-width:none !important; padding:0 !important; margin:0 !important}
+  .view.active{display:block !important}
+  #bookWrap{display:block !important; gap:0 !important}
+  .book{gap:0 !important; display:block !important; zoom:1 !important; width:auto !important}
+  .page{box-shadow:none !important; break-after:page; page-break-after:always; margin:0 !important; break-inside:avoid}
+  .page:last-of-type{break-after:auto; page-break-after:auto}
+  .book.imposed .page{break-after:auto !important; page-break-after:auto !important}
+  .book.imposed .sheet{break-after:page; page-break-after:always; break-inside:avoid; box-shadow:none !important; margin:0 !important}
+  .book.imposed .sheet:last-of-type{break-after:auto; page-break-after:auto}
+  .sheet .fold{display:none !important}
+  .measure{display:none !important}
+  *{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+}
+
+#toast{
+  position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px);
+  background:#111; color:#fff; padding:10px 18px; border-radius:99px; font-size:13px;
+  opacity:0; pointer-events:none; transition:.2s; z-index:200; max-width:90vw; text-align:center;
+}
+#toast.on{opacity:.95; transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<div class="topbar noprint">
+  <div class="logo">📘 페이스북 <span>책자 만들기</span></div>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-view="load"><span class="num">1</span>데이터 불러오기</button>
+    <button class="tab" data-view="posts" disabled><span class="num">2</span>글 고르기 · 편집</button>
+    <button class="tab" data-view="design" disabled><span class="num">3</span>책 디자인</button>
+    <button class="tab" data-view="preview" disabled><span class="num">4</span>미리보기 · PDF</button>
+  </nav>
+  <div class="spacer"></div>
+  <button class="btn sm" id="btnSaveProject">편집본 저장</button>
+  <button class="btn sm" id="btnLoadProject">편집본 열기</button>
+</div>
+
+<main>
+
+<!-- =============================================== 1. 데이터 불러오기 -->
+<section class="view active" id="tab-load">
+  <div class="card">
+    <h2>1단계 · 페이스북 데이터 불러오기</h2>
+    <p class="sub">파일은 서버로 전송되지 않습니다. 모든 처리는 이 브라우저 안에서만 이루어집니다.</p>
+
+    <div class="drop" id="drop">
+      <div class="icon">📦</div>
+      <div class="big">내보내기 ZIP 파일을 여기에 끌어다 놓으세요</div>
+      <div class="small">또는 클릭해서 선택 · <code>.zip</code> / <code>.json</code> / <code>.html</code> 지원 (여러 개 선택 가능)</div>
+    </div>
+    <input type="file" id="fileInput" multiple accept=".zip,.json,.html,.htm" hidden>
+
+    <div class="progress" id="prog"><i></i></div>
+    <div id="loadLog"></div>
+
+    <div class="row" style="margin-top:14px">
+      <button class="btn" id="btnSample">샘플 데이터로 먼저 둘러보기</button>
+      <button class="btn primary" id="btnGoPosts" disabled>다음 단계로 →</button>
+    </div>
+
+    <div class="stats" id="stats" style="display:none"></div>
+  </div>
+
+  <details class="acc" id="howto">
+    <summary>페이스북에서 내 게시물 데이터 내려받는 방법</summary>
+    <div class="body">
+      <ol style="padding-left:20px; margin:0">
+        <li>페이스북 → <b>설정 및 개인정보</b> → <b>설정</b> → <b>내 정보에 액세스</b> → <b>정보 다운로드</b>
+          (모바일 앱: 설정 → 개인정보 센터 → 내 정보 다운로드)</li>
+        <li><b>정보 다운로드</b> 요청 만들기를 선택합니다.</li>
+        <li>범위: <b>Facebook의 내 활동</b> → <b>게시물(Posts)</b> 만 선택하면 용량이 작아 빠릅니다.</li>
+        <li>형식은 <b>JSON</b>을 고르세요. (HTML도 읽을 수 있지만 JSON이 훨씬 정확합니다.)</li>
+        <li>미디어 화질은 원하는 대로. <b>중간/높음</b>이면 인쇄 품질이 좋습니다.</li>
+        <li>요청 후 준비되면 이메일/알림이 옵니다. 받은 <b>ZIP 파일을 그대로</b> 위에 올리세요.
+          (압축을 풀 필요도, 파일을 고를 필요도 없습니다.)</li>
+      </ol>
+      <div class="note">
+        <b>왜 ZIP을 쓰나요?</b> 페이스북 Graph API로는 본인 타임라인 게시물을 읽으려면 <code>user_posts</code> 권한과
+        앱 심사가 필요해서, 실제로는 대부분 막혀 있습니다. 내보내기 파일이 사진까지 포함된 가장 완전한 방법입니다.
+      </div>
+    </div>
+  </details>
+
+  <details class="acc">
+    <summary>(실험적) Graph API 액세스 토큰으로 직접 불러오기</summary>
+    <div class="body">
+      <div class="note warn">
+        <b>대부분의 계정에서는 동작하지 않습니다.</b> 개인 타임라인 글 읽기(<code>user_posts</code>)는 앱 심사 대상이라
+        일반 토큰으로는 빈 목록이 돌아옵니다. 본인이 만든 앱의 개발자/테스터 계정이거나
+        페이지(Page) 게시물이라면 동작할 수 있습니다. 사진은 원격 URL이라 시간이 지나면 만료됩니다.
+      </div>
+      <div class="fld" style="margin-bottom:10px">
+        <label>액세스 토큰</label>
+        <input type="text" id="fbToken" placeholder="EAAB... (Graph API 탐색기에서 복사)">
+        <div class="hint">토큰은 이 브라우저 밖으로 나가지 않으며, 페이스북 서버로만 직접 요청합니다. 저장하지 않습니다.</div>
+      </div>
+      <div class="row">
+        <select id="fbEdge" class="btn sm" style="font-weight:500">
+          <option value="me/posts">내 게시물 (me/posts)</option>
+          <option value="me/feed">내 피드 (me/feed)</option>
+        </select>
+        <input type="number" id="fbLimit" value="200" min="1" max="2000" style="width:110px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--panel)">
+        <button class="btn" id="btnFbFetch">불러오기</button>
+      </div>
+      <div id="fbLog" style="font-size:12.5px;color:var(--muted);margin-top:10px;white-space:pre-wrap"></div>
+    </div>
+  </details>
+</section>
+
+<!-- =============================================== 2. 글 고르기 -->
+<section class="view" id="tab-posts">
+  <div class="card">
+    <h2>2단계 · 책에 넣을 글 고르고 다듬기</h2>
+    <p class="sub">체크를 풀면 책에서 빠집니다. 글 내용은 직접 고쳐 쓸 수 있고, 원래 글은 그대로 보존됩니다.</p>
+    <div class="filters">
+      <div class="f"><label>검색어</label><input type="search" id="fQ" placeholder="본문에 포함된 말"></div>
+      <div class="f"><label>시작일</label><input type="date" id="fFrom"></div>
+      <div class="f"><label>종료일</label><input type="date" id="fTo"></div>
+      <div class="f"><label>최소 글자 수</label><input type="number" id="fMinLen" value="0" min="0"></div>
+      <div class="f"><label>사진</label>
+        <select id="fMedia"><option value="all">상관없음</option><option value="yes">사진 있는 글만</option><option value="no">사진 없는 글만</option></select>
+      </div>
+      <div class="f"><label>정렬</label>
+        <select id="fSort"><option value="asc">오래된 글부터</option><option value="desc">최신 글부터</option></select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn sm" id="btnSelAll">보이는 글 모두 선택</button>
+      <button class="btn sm" id="btnSelNone">보이는 글 모두 해제</button>
+      <button class="btn sm" id="btnOnlyThese">보이는 글만 남기기</button>
+      <button class="btn sm" id="btnResetEdits">편집 되돌리기(전체)</button>
+      <div class="spacer" style="flex:1"></div>
+      <span id="selInfo" style="color:var(--muted)"></span>
+      <button class="btn primary sm" id="btnGoDesign">다음 단계로 →</button>
+    </div>
+  </div>
+  <div class="postlist" id="postlist"></div>
+  <div class="pager" id="pager"></div>
+</section>
+
+<!-- =============================================== 3. 디자인 -->
+<section class="view" id="tab-design">
+  <div class="card">
+    <h2>3단계 · 책 디자인</h2>
+    <p class="sub">바꾸면 미리보기에 바로 반영됩니다.</p>
+
+    <h3 style="font-size:13px;margin:6px 0 10px;color:var(--muted)">표지 정보</h3>
+    <div class="grid2">
+      <div class="fld"><label>책 제목</label><input type="text" id="dTitle" value="나의 페이스북 기록"></div>
+      <div class="fld"><label>부제</label><input type="text" id="dSubtitle" placeholder="예: 2015–2025"></div>
+      <div class="fld"><label>지은이</label><input type="text" id="dAuthor" placeholder="이름"></div>
+      <div class="fld"><label>표지</label>
+        <select id="dCover"><option value="text">글자만</option><option value="photo">첫 사진 + 글자</option><option value="none">표지 없음</option></select>
+      </div>
+    </div>
+
+    <h3 style="font-size:13px;margin:20px 0 10px;color:var(--muted)">판형 · 여백</h3>
+    <div class="grid2">
+      <div class="fld"><label>종이 크기</label>
+        <select id="dSize">
+          <option value="a4">A4 (210×297mm)</option>
+          <option value="b5">B5 (176×250mm)</option>
+          <option value="a5" selected>A5 (148×210mm) · 책자에 알맞음</option>
+          <option value="letter">Letter (216×279mm)</option>
+          <option value="square">정사각 (180×180mm)</option>
+        </select>
+      </div>
+      <div class="fld"><label>방향</label>
+        <select id="dOrient"><option value="portrait">세로</option><option value="landscape">가로</option></select>
+      </div>
+      <div class="fld"><label>바깥 여백 (mm)</label>
+        <div class="rangeRow"><input type="range" id="dMargin" min="8" max="35" value="16"><output id="oMargin">16</output></div>
+      </div>
+      <div class="fld"><label>안쪽(제본) 여백 추가 (mm)</label>
+        <div class="rangeRow"><input type="range" id="dGutter" min="0" max="20" value="4"><output id="oGutter">4</output></div>
+        <div class="hint">인쇄·제본할 때 안쪽이 말려 들어가는 것을 보정합니다.</div>
+      </div>
+      <div class="fld"><label>단 수</label>
+        <select id="dCols"><option value="1" selected>1단</option><option value="2">2단</option></select>
+      </div>
+    </div>
+
+    <h3 style="font-size:13px;margin:20px 0 10px;color:var(--muted)">본문 글꼴</h3>
+    <div class="grid2">
+      <div class="fld"><label>글꼴</label>
+        <select id="dFont">
+          <option value="serif">명조 계열 (책 느낌)</option>
+          <option value="sans">고딕 계열 (또렷함)</option>
+          <option value="mixed">본문 명조 + 제목 고딕</option>
+        </select>
+      </div>
+      <div class="fld"><label>글자 크기 (pt)</label>
+        <div class="rangeRow"><input type="range" id="dFs" min="7" max="16" step="0.5" value="10.5"><output id="oFs">10.5</output></div>
+      </div>
+      <div class="fld"><label>줄 간격</label>
+        <div class="rangeRow"><input type="range" id="dLh" min="1.3" max="2.4" step="0.05" value="1.75"><output id="oLh">1.75</output></div>
+      </div>
+      <div class="fld"><label>문단 첫 줄 들여쓰기</label>
+        <select id="dIndent"><option value="no">안 함</option><option value="yes">함</option></select>
+      </div>
+    </div>
+
+    <h3 style="font-size:13px;margin:20px 0 10px;color:var(--muted)">구성</h3>
+    <div class="grid2">
+      <div class="fld"><label>장(章) 나누기</label>
+        <select id="dChapter"><option value="none">나누지 않음</option><option value="year" selected>연도별</option><option value="month">연월별</option></select>
+      </div>
+      <div class="fld"><label>글 시작 위치</label>
+        <select id="dPostBreak"><option value="flow">이어서 흐르게</option><option value="page">글마다 새 페이지</option></select>
+      </div>
+      <div class="fld"><label>날짜 표기</label>
+        <select id="dDateFmt">
+          <option value="ko">2024년 3월 5일 (화)</option>
+          <option value="ko2">2024. 3. 5.</option>
+          <option value="kotime">2024년 3월 5일 오후 9:12</option>
+          <option value="none">표시 안 함</option>
+        </select>
+      </div>
+      <div class="fld"><label>쪽 번호 위치</label>
+        <select id="dPageNum"><option value="outer" selected>바깥쪽 아래</option><option value="center">가운데 아래</option><option value="none">넣지 않음</option></select>
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:6px">
+      <div class="chk"><input type="checkbox" id="dToc" checked><label for="dToc">목차 넣기</label></div>
+      <div class="chk"><input type="checkbox" id="dRunHead" checked><label for="dRunHead">머리말(책 제목 · 장 이름) 넣기</label></div>
+      <div class="chk"><input type="checkbox" id="dSep" checked><label for="dSep">글과 글 사이 구분선</label></div>
+      <div class="chk"><input type="checkbox" id="dMeta" checked><label for="dMeta">장소 · 링크 정보 넣기</label></div>
+      <div class="chk"><input type="checkbox" id="dTitleLine"><label for="dTitleLine">페이스북 자동 문구 표시 (“○○님이 게시물을 공유했습니다”)</label></div>
+    </div>
+
+    <h3 style="font-size:13px;margin:20px 0 10px;color:var(--muted)">인쇄 방식</h3>
+    <div class="grid2">
+      <div class="fld"><label>페이지 배치</label>
+        <select id="dImpose">
+          <option value="none">한 장에 한 쪽 (그대로)</option>
+          <option value="booklet">중철 소책자 — 한 장에 두 쪽, 접으면 책이 되는 순서</option>
+        </select>
+        <div class="hint">소책자를 고르면 종이 크기의 두 배 되는 가로 용지에 두 쪽씩 인쇄됩니다.
+          (A5 → A4 가로) 양면 인쇄로 뽑아 반으로 접고 가운데를 스테이플러로 박으면 책이 됩니다.</div>
+      </div>
+    </div>
+
+    <h3 style="font-size:13px;margin:20px 0 10px;color:var(--muted)">사진</h3>
+    <div class="grid2">
+      <div class="fld"><label>사진 넣기</label>
+        <select id="dImg"><option value="yes" selected>넣기</option><option value="no">넣지 않음(글만)</option></select>
+      </div>
+      <div class="fld"><label>사진 폭 (단 너비 대비 %)</label>
+        <div class="rangeRow"><input type="range" id="dImgW" min="35" max="100" value="85"><output id="oImgW">85</output></div>
+      </div>
+      <div class="fld"><label>글 하나당 최대 장수</label>
+        <input type="number" id="dImgMax" value="3" min="1" max="20">
+      </div>
+      <div class="chk"><input type="checkbox" id="dImgCap"><label for="dImgCap">사진 설명 넣기</label></div>
+    </div>
+
+    <div class="row" style="margin-top:18px">
+      <button class="btn primary" id="btnGoPreview">미리보기 만들기 →</button>
+      <button class="btn" id="btnResetDesign">기본값으로</button>
+    </div>
+  </div>
+</section>
+
+<!-- =============================================== 4. 미리보기 -->
+<section class="view" id="tab-preview">
+  <div class="previewbar noprint">
+    <button class="btn primary" id="btnPrint">🖨 PDF로 저장 / 인쇄</button>
+    <button class="btn" id="btnRelayout">다시 배치</button>
+    <span class="info" id="pvInfo">—</span>
+    <div style="flex:1"></div>
+    <label style="color:var(--muted);font-size:12px">확대</label>
+    <input type="range" id="zoom" min="30" max="130" value="70" style="width:130px">
+    <output id="oZoom" style="color:var(--muted);font-size:12px;width:40px">70%</output>
+  </div>
+  <div class="note noprint" id="printTip">
+    <b>PDF로 저장할 때</b> — 인쇄 창에서 <b>대상: PDF로 저장</b>, <b>여백: 없음</b>,
+    <b>배율: 기본값(100%)</b>, <b>배경 그래픽: 켬</b>으로 두면 화면 그대로 저장됩니다.
+    (사파리는 <b>PDF ▾ → PDF로 저장</b>)
+  </div>
+  <div id="bookWrap"><div class="book" id="book"></div></div>
+</section>
+
+</main>
+
+<div id="toast"></div>
+<input type="file" id="projInput" accept=".json" hidden>
+
+<script>
+"use strict";
+/* =====================================================================
+ * 페이스북 게시물 → 인쇄용 책자
+ * 전부 클라이언트 사이드. 외부 라이브러리 없음.
+ * ===================================================================== */
+
+const $  = (s,r)=> (r||document).querySelector(s);
+const $$ = (s,r)=> Array.from((r||document).querySelectorAll(s));
+
+function toast(msg, ms){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove('on'), ms||2400);
+}
+function log(el, msg){ el.textContent += (el.textContent?'\n':'') + msg; }
+const escapeHtml = s => String(s==null?'':s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+/* ---------------------------------------------------------------------
+ * ZIP 읽기 — 브라우저 내장 DecompressionStream 사용, 지연 로딩 방식
+ * (수 GB 짜리 내보내기 파일도 통째로 메모리에 올리지 않는다)
+ * ------------------------------------------------------------------- */
+const SIG_EOCD=0x06054b50, SIG_EOCD64=0x06064b50, SIG_LOC64=0x07064b50, SIG_CEN=0x02014b50;
+
+async function slice(file, start, len){
+  return new DataView(await file.slice(start, start+len).arrayBuffer());
+}
+async function inflateRaw(u8){
+  if (typeof DecompressionStream === 'undefined')
+    throw new Error('이 브라우저는 ZIP 압축 해제를 지원하지 않습니다. 최신 크롬/사파리/파이어폭스를 사용하세요.');
+  const s = new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+
+async function readZip(file){
+  const tailLen = Math.min(file.size, 66000);
+  const tail = await slice(file, file.size - tailLen, tailLen);
+  let p = -1;
+  for (let i = tail.byteLength - 22; i >= 0; i--){
+    if (tail.getUint32(i, true) === SIG_EOCD){ p = i; break; }
+  }
+  if (p < 0) throw new Error('ZIP 파일이 아니거나 손상되었습니다.');
+
+  let count    = tail.getUint16(p+10, true);
+  let cdSize   = tail.getUint32(p+12, true);
+  let cdOffset = tail.getUint32(p+16, true);
+
+  if (cdOffset === 0xffffffff || cdSize === 0xffffffff || count === 0xffff){
+    const lp = p - 20;
+    if (lp >= 0 && tail.getUint32(lp, true) === SIG_LOC64){
+      const z64at = Number(tail.getBigUint64(lp+8, true));
+      const z = await slice(file, z64at, 56);
+      if (z.getUint32(0, true) === SIG_EOCD64){
+        count    = Number(z.getBigUint64(32, true));
+        cdSize   = Number(z.getBigUint64(40, true));
+        cdOffset = Number(z.getBigUint64(48, true));
+      }
+    }
+  }
+
+  const cd = await slice(file, cdOffset, cdSize);
+  const utf8 = new TextDecoder('utf-8');
+  const entries = [];
+  let o = 0;
+  for (let i = 0; i < count && o + 46 <= cd.byteLength; i++){
+    if (cd.getUint32(o, true) !== SIG_CEN) break;
+    const flags   = cd.getUint16(o+8, true);
+    const method  = cd.getUint16(o+10, true);
+    let   cSize   = cd.getUint32(o+20, true);
+    let   uSize   = cd.getUint32(o+24, true);
+    const nameLen = cd.getUint16(o+28, true);
+    const extLen  = cd.getUint16(o+30, true);
+    const comLen  = cd.getUint16(o+32, true);
+    let   lho     = cd.getUint32(o+42, true);
+
+    const nameBytes = new Uint8Array(cd.buffer, cd.byteOffset + o + 46, nameLen);
+    const name = utf8.decode(nameBytes);
+
+    // ZIP64 확장 필드
+    if (uSize === 0xffffffff || cSize === 0xffffffff || lho === 0xffffffff){
+      let e = o + 46 + nameLen; const end = e + extLen;
+      while (e + 4 <= end){
+        const hid = cd.getUint16(e, true), hsz = cd.getUint16(e+2, true);
+        if (hid === 0x0001){
+          let q = e + 4;
+          if (uSize === 0xffffffff){ uSize = Number(cd.getBigUint64(q, true)); q += 8; }
+          if (cSize === 0xffffffff){ cSize = Number(cd.getBigUint64(q, true)); q += 8; }
+          if (lho   === 0xffffffff){ lho   = Number(cd.getBigUint64(q, true)); q += 8; }
+          break;
+        }
+        e += 4 + hsz;
+      }
+    }
+    o += 46 + nameLen + extLen + comLen;
+    if (name.endsWith('/')) continue;
+    entries.push({ name, method, cSize, uSize, lho, flags });
+  }
+
+  const zip = {
+    file, entries,
+    byPath: new Map(entries.map(e => [e.name.toLowerCase(), e])),
+    async bytes(entry){
+      const lh = await slice(file, entry.lho, 30);
+      const nl = lh.getUint16(26, true), el = lh.getUint16(28, true);
+      const at = entry.lho + 30 + nl + el;
+      const raw = new Uint8Array(await file.slice(at, at + entry.cSize).arrayBuffer());
+      if (entry.method === 0) return raw;
+      if (entry.method === 8) return await inflateRaw(raw);
+      throw new Error('지원하지 않는 압축 방식(' + entry.method + '): ' + entry.name);
+    },
+    async text(entry){ return new TextDecoder('utf-8').decode(await zip.bytes(entry)); }
+  };
+  return zip;
+}
+
+/* ---------------------------------------------------------------------
+ * 페이스북 JSON의 한글 깨짐(모지바케) 복구
+ * 내보내기 JSON은 UTF-8 바이트를 \u00xx 로 이스케이프해 넣어두기 때문에
+ * 문자열을 바이트로 되돌린 뒤 UTF-8로 다시 읽어야 한글이 보인다.
+ * ------------------------------------------------------------------- */
+const strictUtf8 = new TextDecoder('utf-8', { fatal:true });
+function fixMojibake(s){
+  if (typeof s !== 'string' || !s) return s;
+  let hi = false;
+  for (let i = 0; i < s.length; i++){
+    const c = s.charCodeAt(i);
+    if (c > 255) return s;      // 이미 제대로 디코딩된 문자열
+    if (c > 127) hi = true;
+  }
+  if (!hi) return s;            // 순수 ASCII
+  const b = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+  try { return strictUtf8.decode(b); } catch(e){ return s; }
+}
+function deepFix(v){
+  if (typeof v === 'string') return fixMojibake(v);
+  if (Array.isArray(v)) return v.map(deepFix);
+  if (v && typeof v === 'object'){
+    const o = {};
+    for (const k in v) o[k] = deepFix(v[k]);
+    return o;
+  }
+  return v;
+}
+
+/* ---------------------------------------------------------------------
+ * 상태
+ * ------------------------------------------------------------------- */
+const state = {
+  posts: [],          // {id, ts, title, text, orig, media:[{uri,desc}], place, links[], include, _mediaUrls}
+  zips: [],           // 미디어 해석을 위해 열어둔 zip들
+  mediaCache: new Map(),
+  page: 0,
+  perPage: 40,
+  filtered: [],
+  design: null,
+  lastLayout: null
+};
+
+const DEFAULT_DESIGN = {
+  title:'나의 페이스북 기록', subtitle:'', author:'', cover:'text',
+  size:'a5', orient:'portrait', margin:16, gutter:4, cols:1,
+  font:'serif', fs:10.5, lh:1.75, indent:'no',
+  chapter:'year', postBreak:'flow', dateFmt:'ko', pageNum:'outer',
+  toc:true, runHead:true, sep:true, meta:true, titleLine:false, impose:'none',
+  img:'yes', imgW:85, imgMax:3, imgCap:false
+};
+
+const PAPER = {
+  a4:[210,297], b5:[176,250], a5:[148,210], letter:[215.9,279.4], square:[180,180]
+};
+const FONTS = {
+  serif:"'Noto Serif KR','Nanum Myeongjo','Batang','바탕','AppleMyungjo','Songti SC',serif",
+  sans:"'Pretendard','Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic','맑은 고딕','Nanum Gothic',sans-serif"
+};
+
+/* ---------------------------------------------------------------------
+ * 게시물 정규화
+ * ------------------------------------------------------------------- */
+let _uid = 0;
+function makePost(o){
+  return Object.assign({
+    id: 'p' + (++_uid), ts: 0, title:'', text:'', orig:'',
+    media: [], place:'', links: [], include: true, edited: false
+  }, o);
+}
+
+function extractFromJsonValue(json){
+  // 배열이면 그대로, 객체면 게시물스러운 배열을 찾는다
+  let arr = null;
+  if (Array.isArray(json)) arr = json;
+  else if (json && typeof json === 'object'){
+    for (const k of ['posts','status_updates','your_posts','activity_log_data']){
+      if (Array.isArray(json[k])) { arr = json[k]; break; }
+    }
+    if (!arr){
+      for (const k in json){
+        const v = json[k];
+        if (Array.isArray(v) && v.length && v.some(x => x && typeof x === 'object' &&
+            ('timestamp' in x || 'data' in x || 'attachments' in x))) { arr = v; break; }
+      }
+    }
+  }
+  if (!arr) return [];
+
+  const out = [];
+  for (const raw of arr){
+    if (!raw || typeof raw !== 'object') continue;
+    const it = deepFix(raw);
+    let text = '', place = '', links = [], media = [];
+
+    if (Array.isArray(it.data)){
+      for (const d of it.data){
+        if (!d || typeof d !== 'object') continue;
+        if (typeof d.post === 'string') text += (text?'\n\n':'') + d.post;
+      }
+    }
+    if (!text && typeof it.post === 'string') text = it.post;
+    if (!text && typeof it.message === 'string') text = it.message;
+
+    if (Array.isArray(it.attachments)){
+      for (const att of it.attachments){
+        const list = att && Array.isArray(att.data) ? att.data : [];
+        for (const d of list){
+          if (!d || typeof d !== 'object') continue;
+          if (d.media && d.media.uri){
+            media.push({ uri:d.media.uri, desc: d.media.description || d.media.title || '' });
+            if (!text && d.media.description) text = d.media.description;
+          }
+          if (d.external_context && d.external_context.url){
+            links.push({ url:d.external_context.url, name:d.external_context.name || '' });
+          }
+          if (d.place && d.place.name){
+            place = d.place.name + (d.place.address ? ' · ' + d.place.address : '');
+          }
+          if (typeof d.text === 'string' && !text) text = d.text;
+        }
+      }
+    }
+
+    const ts = Number(it.timestamp || it.creation_timestamp || 0) * 1000
+             || (it.created_time ? Date.parse(it.created_time) : 0);
+    const title = typeof it.title === 'string' ? it.title : '';
+    if (!text && !media.length) continue;
+
+    out.push(makePost({ ts, title, text: text.trim(), orig: text.trim(), media, place, links }));
+  }
+  return out;
+}
+
+/* HTML 내보내기 파서 (최선 추정 방식) */
+const HTML_DATE_RE = [
+  /(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일(?:\s*(오전|오후)\s*(\d{1,2}):(\d{2}))?/,
+  /^([A-Z][a-z]{2,8})\s+(\d{1,2}),\s*(\d{4})(?:,?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM))?/
+];
+const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11,
+  January:0,February:1,March:2,April:3,June:5,July:6,August:7,September:8,October:9,November:10,December:11};
+
+function parseHtmlDate(s){
+  let m = s.match(HTML_DATE_RE[0]);
+  if (m){
+    let h = m[5] ? parseInt(m[5],10) : 0;
+    if (m[4] === '오후' && h < 12) h += 12;
+    if (m[4] === '오전' && h === 12) h = 0;
+    return new Date(+m[1], +m[2]-1, +m[3], h, m[6]?+m[6]:0).getTime();
+  }
+  m = s.match(HTML_DATE_RE[1]);
+  if (m && m[1] in MONTHS){
+    let h = m[4] ? parseInt(m[4],10) : 0;
+    if (m[7] === 'PM' && h < 12) h += 12;
+    if (m[7] === 'AM' && h === 12) h = 0;
+    return new Date(+m[3], MONTHS[m[1]], +m[2], h, m[5]?+m[5]:0).getTime();
+  }
+  return 0;
+}
+
+/* 페이스북이 자동으로 붙이는 활동 요약 문구 (본문이 아님) */
+const AUTO_TITLE_RE =
+  /^(?:\S{1,24}님이\s.{1,60}(?:습니다|했다)[.]?|.{1,40}\s(?:shared|added|posted|updated|created|was with|is with|checked in|is at)\b.{0,60})$/i;
+
+function extractFromHtml(htmlText){
+  const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+  const out = [];
+  const seen = new Set();
+  const cands = doc.querySelectorAll('div,span,td');
+  for (const el of cands){
+    if (el.children.length) continue;                    // 잎 노드만
+    const t = (el.textContent || '').trim();
+    if (!t || t.length > 60) continue;
+    const ts = parseHtmlDate(t);
+    if (!ts) continue;
+    let box = el.parentElement;
+    for (let i = 0; i < 4 && box; i++){
+      if ((box.textContent || '').trim().length > t.length + 10) break;
+      box = box.parentElement;
+    }
+    if (!box || seen.has(box)) continue;
+    seen.add(box);
+
+    const clone = box.cloneNode(true);
+    const media = [];
+    clone.querySelectorAll('img').forEach(img => {
+      const src = img.getAttribute('src') || '';
+      if (src && !src.startsWith('data:')) media.push({ uri: decodeURIComponent(src), desc:'' });
+    });
+    const links = [];
+    clone.querySelectorAll('a[href]').forEach(a => {
+      const h = a.getAttribute('href') || '';
+      if (/^https?:/i.test(h)) links.push({ url:h, name:(a.textContent||'').trim() });
+    });
+    clone.querySelectorAll('img,script,style').forEach(n => n.remove());
+    const parts = (clone.innerText || clone.textContent || '')
+      .replace(/\u00a0/g, ' ').split('\n').map(s => s.trim()).filter(Boolean)
+      .filter(l => l !== t);
+    // "○○님이 게시물을 공유했습니다" 같은 자동 문구는 본문이 아니라 제목 칸으로 뺀다
+    let title = '';
+    if (parts.length && AUTO_TITLE_RE.test(parts[0])) title = parts.shift();
+    const text = parts.join('\n').trim();
+    if (!text && !media.length && !title) continue;
+    out.push(makePost({ ts, title, text, orig:text, media, links }));
+  }
+  return out;
+}
+
+/* ---------------------------------------------------------------------
+ * 미디어 해석 (zip 안 경로 → blob URL)
+ * ------------------------------------------------------------------- */
+function findEntry(uri){
+  const key = String(uri).replace(/^\.?\//,'').toLowerCase();
+  const base = key.split('/').pop();
+  for (const zip of state.zips){
+    let e = zip.byPath.get(key);
+    if (e) return { zip, e };
+    for (const [p, en] of zip.byPath){
+      if (p.endsWith('/' + key)) return { zip, e: en };
+    }
+    for (const [p, en] of zip.byPath){
+      if (p.endsWith('/' + base) || p === base) return { zip, e: en };
+    }
+  }
+  return null;
+}
+async function mediaURL(uri){
+  if (/^https?:/i.test(uri)) return uri;
+  if (state.mediaCache.has(uri)) return state.mediaCache.get(uri);
+  const hit = findEntry(uri);
+  if (!hit){ state.mediaCache.set(uri, null); return null; }
+  try{
+    const bytes = await hit.zip.bytes(hit.e);
+    const ext = (hit.e.name.split('.').pop() || '').toLowerCase();
+    const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif'
+               : ext === 'webp' ? 'image/webp' : /mp4|mov/.test(ext) ? 'video/mp4' : 'image/jpeg';
+    if (mime.startsWith('video')){ state.mediaCache.set(uri, null); return null; }
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    state.mediaCache.set(uri, url);
+    return url;
+  }catch(err){
+    state.mediaCache.set(uri, null);
+    return null;
+  }
+}
+const sizeCache = new Map();
+function imgSize(url){
+  if (sizeCache.has(url)) return Promise.resolve(sizeCache.get(url));
+  return new Promise(res => {
+    const im = new Image();
+    const done = v => { sizeCache.set(url, v); res(v); };
+    im.onload  = () => done({ w: im.naturalWidth || 1, h: im.naturalHeight || 1 });
+    im.onerror = () => done(null);
+    im.src = url;
+  });
+}
+const yieldToUI = () => new Promise(r => setTimeout(r, 0));
+
+/* ---------------------------------------------------------------------
+ * 1단계 — 파일 불러오기
+ * ------------------------------------------------------------------- */
+const drop = $('#drop'), fileInput = $('#fileInput'), loadLog = $('#loadLog'), prog = $('#prog');
+
+drop.addEventListener('click', () => fileInput.click());
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.add('over');
+}));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.remove('over');
+}));
+drop.addEventListener('drop', e => {
+  if (e.dataTransfer && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) handleFiles(fileInput.files);
+});
+
+function setProg(pct){
+  prog.classList.add('on');
+  prog.firstElementChild.style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+
+const POST_FILE_RE = /(^|\/)(your_posts|your_uncategorized_photos|posts?)[^/]*\.json$/i;
+
+async function handleFiles(fileList){
+  loadLog.textContent = ''; setProg(2);
+  const files = Array.from(fileList);
+  const found = [];
+  try{
+    for (let i = 0; i < files.length; i++){
+      const f = files[i];
+      setProg(5 + (i / files.length) * 80);
+      const lower = f.name.toLowerCase();
+
+      if (lower.endsWith('.zip')){
+        log(loadLog, '📦 ' + f.name + ' 여는 중…');
+        const zip = await readZip(f);
+        state.zips.push(zip);
+        log(loadLog, '   파일 ' + zip.entries.length.toLocaleString() + '개');
+
+        let targets = zip.entries.filter(e => POST_FILE_RE.test(e.name) && /\/posts?\//i.test(e.name));
+        if (!targets.length) targets = zip.entries.filter(e => POST_FILE_RE.test(e.name));
+        if (!targets.length) targets = zip.entries.filter(e => /\.json$/i.test(e.name) && e.uSize < 80e6);
+
+        let got = 0;
+        for (const e of targets){
+          let txt;
+          try { txt = await zip.text(e); } catch(err){ continue; }
+          let json;
+          try { json = JSON.parse(txt); } catch(err){ continue; }
+          const ps = extractFromJsonValue(json);
+          if (ps.length){ found.push(...ps); got += ps.length; log(loadLog, '   ✔ ' + e.name + ' → ' + ps.length + '개'); }
+        }
+        if (!got){
+          const htmls = zip.entries.filter(e => /\.html?$/i.test(e.name) && /post/i.test(e.name));
+          for (const e of htmls){
+            try{
+              const ps = extractFromHtml(await zip.text(e));
+              if (ps.length){ found.push(...ps); log(loadLog, '   ✔ (HTML) ' + e.name + ' → ' + ps.length + '개'); }
+            }catch(err){}
+          }
+        }
+      } else if (lower.endsWith('.json')){
+        const ps = extractFromJsonValue(JSON.parse(await f.text()));
+        found.push(...ps);
+        log(loadLog, '✔ ' + f.name + ' → ' + ps.length + '개');
+      } else if (/\.html?$/.test(lower)){
+        const ps = extractFromHtml(await f.text());
+        found.push(...ps);
+        log(loadLog, '✔ (HTML) ' + f.name + ' → ' + ps.length + '개');
+      } else {
+        log(loadLog, '… ' + f.name + ' 은(는) 건너뜀');
+      }
+    }
+  }catch(err){
+    log(loadLog, '⚠ ' + err.message);
+    setProg(100);
+    toast('불러오는 중 문제가 생겼습니다: ' + err.message, 5000);
+    return;
+  }
+
+  setProg(100);
+  if (!found.length){
+    log(loadLog, '\n게시물을 찾지 못했습니다. 내보내기 형식을 JSON으로 다시 요청하거나,\nposts 폴더 안의 your_posts*.json 파일을 직접 올려 보세요.');
+    toast('게시물을 찾지 못했습니다');
+    return;
+  }
+  adoptPosts(found);
+}
+
+function adoptPosts(list){
+  // 같은 시각 + 같은 내용은 한 번만
+  const seen = new Set(); const uniq = [];
+  for (const p of list){
+    const k = p.ts + '|' + p.text.slice(0, 80) + '|' + (p.media[0] ? p.media[0].uri : '');
+    if (seen.has(k)) continue;
+    seen.add(k); uniq.push(p);
+  }
+  uniq.sort((a,b) => a.ts - b.ts);
+  state.posts = uniq;
+  restoreEdits();
+
+  const withPhoto = uniq.filter(p => p.media.length).length;
+  const chars = uniq.reduce((n,p) => n + p.text.length, 0);
+  // 게시물이 수만 개일 수 있으므로 스프레드 대신 reduce 로 최소·최대를 구한다
+  let y0 = Infinity, y1 = -Infinity;
+  for (const p of uniq){
+    if (!p.ts) continue;
+    const y = new Date(p.ts).getFullYear();
+    if (y < y0) y0 = y;
+    if (y > y1) y1 = y;
+  }
+  const span = y1 >= y0 ? (y0 === y1 ? String(y0) : y0 + '–' + y1) : '—';
+  $('#stats').style.display = '';
+  $('#stats').innerHTML = [
+    ['게시물', uniq.length.toLocaleString() + '개'],
+    ['사진 있는 글', withPhoto.toLocaleString() + '개'],
+    ['전체 글자 수', chars.toLocaleString() + '자'],
+    ['기간', span],
+    ['200자 원고지', Math.ceil(chars/200).toLocaleString() + '매']
+  ].map(([k,v]) => '<div class="stat"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>').join('');
+
+  if (!state.design.subtitle && span !== '—'){
+    state.design.subtitle = span;
+    $('#dSubtitle').value = span;
+  }
+  $$('.tab').forEach(t => t.disabled = false);
+  $('#btnGoPosts').disabled = false;
+  toast(uniq.length.toLocaleString() + '개의 게시물을 불러왔습니다');
+  renderPosts();
+}
+
+/* 샘플 데이터 */
+$('#btnSample').addEventListener('click', () => {
+  const base = Date.UTC(2021,2,14,9,30);
+  const day = 86400000;
+  const texts = [
+    '봄이 왔다고 하기엔 아직 이른 바람이 부는 저녁.\n\n퇴근길에 골목 어귀 목련이 봉오리를 맺은 걸 봤다. 매년 지나치던 나무인데 올해는 왜인지 한참을 서서 봤다.',
+    '오늘 아이가 처음으로 자전거를 혼자 탔다. 뒤에서 잡고 있던 손을 놓은 줄도 모르고 한참을 달려가더니, 뒤를 돌아보고는 그제야 놀라서 넘어졌다.\n\n울면서도 다시 타겠다고 했다.',
+    '주말에 다녀온 강릉. 파도가 생각보다 높았고, 커피는 생각보다 진했다.',
+    '오래된 책장을 정리하다가 대학 때 쓰던 노트를 찾았다. 글씨가 지금보다 훨씬 정성스럽다.\n\n그때는 시간이 많아서였을까, 아니면 마음이 더 여유로워서였을까.',
+    '비 오는 날의 도서관은 조금 특별하다. 창밖 소리 때문에 오히려 더 조용하게 느껴진다.',
+    '엄마 생신. 미역국을 끓였는데 간이 좀 셌다. 그래도 다 드셨다.',
+    '새 프로젝트를 시작했다. 매번 시작은 설레고, 매번 중반은 막막하고, 매번 끝은 아쉽다.'
+  ];
+  const posts = texts.map((t,i) => makePost({
+    ts: base + day * i * 47,
+    text: t, orig: t,
+    place: i === 2 ? '강릉 안목해변' : '',
+    links: i === 6 ? [{ url:'https://example.com/project', name:'프로젝트 소개' }] : []
+  }));
+  state.zips = []; state.mediaCache.clear();
+  adoptPosts(posts);
+  showView('posts');
+});
+
+/* ---------------------------------------------------------------------
+ * Graph API (실험적)
+ * ------------------------------------------------------------------- */
+$('#btnFbFetch').addEventListener('click', async () => {
+  const token = $('#fbToken').value.trim();
+  const out = $('#fbLog');
+  out.textContent = '';
+  if (!token){ toast('액세스 토큰을 넣어 주세요'); return; }
+  const edge  = $('#fbEdge').value;
+  const limit = Math.max(1, Math.min(2000, parseInt($('#fbLimit').value, 10) || 200));
+  const fields = 'id,message,story,created_time,permalink_url,full_picture,place';
+  let url = 'https://graph.facebook.com/v21.0/' + edge + '?fields=' + fields +
+            '&limit=100&access_token=' + encodeURIComponent(token);
+  const acc = [];
+  try{
+    while (url && acc.length < limit){
+      log(out, '요청 중… (' + acc.length + '개)');
+      const r = await fetch(url);
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message + ' (code ' + j.error.code + ')');
+      for (const d of (j.data || [])){
+        const text = d.message || d.story || '';
+        const media = d.full_picture ? [{ uri: d.full_picture, desc:'' }] : [];
+        if (!text && !media.length) continue;
+        acc.push(makePost({
+          ts: d.created_time ? Date.parse(d.created_time) : 0,
+          text: text.trim(), orig: text.trim(), media,
+          place: d.place && d.place.name ? d.place.name : '',
+          links: d.permalink_url ? [{ url:d.permalink_url, name:'원문 보기' }] : []
+        }));
+      }
+      url = (j.paging && j.paging.next) || null;
+    }
+  }catch(err){
+    log(out, '⚠ ' + err.message);
+    log(out, '개인 타임라인 글은 user_posts 권한(앱 심사)이 필요합니다. 내보내기 ZIP을 쓰는 편이 확실합니다.');
+    return;
+  }
+  if (!acc.length){
+    log(out, '가져온 글이 없습니다. 권한 제약일 가능성이 큽니다 — 내보내기 ZIP을 사용해 주세요.');
+    return;
+  }
+  log(out, '✔ ' + acc.length + '개를 가져왔습니다.');
+  adoptPosts(acc);
+  showView('posts');
+});
+
+/* ---------------------------------------------------------------------
+ * 2단계 — 목록 · 편집
+ * ------------------------------------------------------------------- */
+function fmtDate(ts, mode){
+  if (!ts) return '날짜 없음';
+  const d = new Date(ts);
+  const wd = ['일','월','화','수','목','금','토'][d.getDay()];
+  const h = d.getHours();
+  switch (mode){
+    case 'ko2':    return d.getFullYear() + '. ' + (d.getMonth()+1) + '. ' + d.getDate() + '.';
+    case 'kotime': return d.getFullYear() + '년 ' + (d.getMonth()+1) + '월 ' + d.getDate() + '일 ' +
+                          (h < 12 ? '오전 ' : '오후 ') + (h % 12 || 12) + ':' + String(d.getMinutes()).padStart(2,'0');
+    case 'none':   return '';
+    default:       return d.getFullYear() + '년 ' + (d.getMonth()+1) + '월 ' + d.getDate() + '일 (' + wd + ')';
+  }
+}
+
+function applyFilters(){
+  const q  = $('#fQ').value.trim().toLowerCase();
+  const f  = $('#fFrom').value ? new Date($('#fFrom').value + 'T00:00:00').getTime() : -Infinity;
+  const t  = $('#fTo').value   ? new Date($('#fTo').value   + 'T23:59:59').getTime() :  Infinity;
+  const ml = parseInt($('#fMinLen').value, 10) || 0;
+  const md = $('#fMedia').value;
+  const sort = $('#fSort').value;
+
+  let arr = state.posts.filter(p => {
+    if (q && !(p.text + ' ' + p.title).toLowerCase().includes(q)) return false;
+    if (p.ts && (p.ts < f || p.ts > t)) return false;
+    if (p.text.length < ml) return false;
+    if (md === 'yes' && !p.media.length) return false;
+    if (md === 'no'  &&  p.media.length) return false;
+    return true;
+  });
+  arr.sort((a,b) => sort === 'asc' ? a.ts - b.ts : b.ts - a.ts);
+  state.filtered = arr;
+  state.page = 0;
+}
+
+function postCardHTML(p){
+  return `
+    <div class="post${p.include ? '' : ' off'}" data-id="${p.id}">
+      <div class="head">
+        <input type="checkbox" class="inc" ${p.include ? 'checked' : ''} title="책에 넣기">
+        <span class="date">${escapeHtml(fmtDate(p.ts, 'ko'))}</span>
+        ${p.media.length ? `<span class="badge">사진 ${p.media.length}</span>` : ''}
+        ${p.place ? `<span class="badge">📍 ${escapeHtml(p.place)}</span>` : ''}
+        <span class="badge">${p.text.length}자</span>
+        ${p.edited ? '<span class="edited">편집됨</span>' : ''}
+        <span class="spacer"></span>
+        <button class="btn sm undo" ${p.edited ? '' : 'disabled'}>원문 되돌리기</button>
+      </div>
+      <textarea class="txt" spellcheck="false">${escapeHtml(p.text)}</textarea>
+      ${p.media.length ? `<div class="thumbs" data-thumbs="${p.id}"></div>` : ''}
+    </div>`;
+}
+function updateSelInfo(){
+  $('#selInfo').textContent =
+    '전체 ' + state.posts.length.toLocaleString() + '개 중 ' + state.filtered.length.toLocaleString() + '개 표시 · ' +
+    state.posts.filter(p => p.include).length.toLocaleString() + '개 선택됨';
+}
+function renderPosts(keepPage){
+  const prev = state.page;
+  applyFilters();                                  // state.page 를 0으로 되돌린다
+  const pages = Math.max(1, Math.ceil(state.filtered.length / state.perPage));
+  if (keepPage) state.page = Math.min(prev, pages - 1);
+
+  const start = state.page * state.perPage;
+  const slice = state.filtered.slice(start, start + state.perPage);
+  $('#postlist').innerHTML = slice.map(postCardHTML).join('');
+  $$('#postlist .txt').forEach(autoGrow);
+  updateSelInfo();
+
+  $('#pager').innerHTML = pages > 1
+    ? `<button class="btn sm" id="pPrev" ${state.page===0?'disabled':''}>← 이전</button>
+       <span>${state.page+1} / ${pages}</span>
+       <button class="btn sm" id="pNext" ${state.page>=pages-1?'disabled':''}>다음 →</button>` : '';
+  if (pages > 1){
+    $('#pPrev').onclick = () => { state.page--; renderPosts(true); };
+    $('#pNext').onclick = () => { state.page++; renderPosts(true); };
+  }
+  loadThumbs(slice);
+}
+
+async function loadThumbs(posts){
+  for (const p of posts){
+    const box = $('[data-thumbs="' + p.id + '"]');
+    if (!box) continue;
+    for (const m of p.media.slice(0, 6)){
+      const url = await mediaURL(m.uri);
+      if (!box.isConnected) return;
+      if (url) box.insertAdjacentHTML('beforeend', '<img loading="lazy" src="' + url + '" alt="">');
+      else box.insertAdjacentHTML('beforeend', '<div class="ph">사진 없음</div>');
+    }
+  }
+}
+
+function autoGrow(ta){
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(Math.max(ta.scrollHeight + 2, 70), 460) + 'px';
+}
+$('#postlist').addEventListener('input', e => {
+  if (!e.target.classList.contains('txt')) return;
+  autoGrow(e.target);
+  const el = e.target.closest('.post');
+  const p = state.posts.find(x => x.id === el.dataset.id);
+  if (!p) return;
+  p.text = e.target.value;
+  p.edited = p.text !== p.orig;
+  el.querySelector('.undo').disabled = !p.edited;
+  saveEdits();
+});
+$('#postlist').addEventListener('change', e => {
+  if (!e.target.classList.contains('inc')) return;
+  const el = e.target.closest('.post');
+  const p = state.posts.find(x => x.id === el.dataset.id);
+  if (!p) return;
+  p.include = e.target.checked;
+  el.classList.toggle('off', !p.include);
+  updateSelInfo();
+  saveEdits();
+});
+$('#postlist').addEventListener('click', e => {
+  if (!e.target.classList.contains('undo')) return;
+  const el = e.target.closest('.post');
+  const p = state.posts.find(x => x.id === el.dataset.id);
+  if (!p) return;
+  p.text = p.orig; p.edited = false;
+  const ta = el.querySelector('.txt');
+  ta.value = p.text; autoGrow(ta);
+  e.target.disabled = true;
+  saveEdits();
+});
+
+['fQ','fFrom','fTo','fMinLen','fMedia','fSort'].forEach(id => {
+  $('#'+id).addEventListener('input', () => renderPosts());
+});
+$('#btnSelAll').onclick  = () => { state.filtered.forEach(p => p.include = true);  saveEdits(); renderPosts(true); };
+$('#btnSelNone').onclick = () => { state.filtered.forEach(p => p.include = false); saveEdits(); renderPosts(true); };
+$('#btnOnlyThese').onclick = () => {
+  const keep = new Set(state.filtered.map(p => p.id));
+  state.posts.forEach(p => p.include = keep.has(p.id));
+  saveEdits(); renderPosts(true); toast('보이는 글만 선택했습니다');
+};
+$('#btnResetEdits').onclick = () => {
+  if (!confirm('편집한 내용을 모두 원문으로 되돌릴까요?')) return;
+  state.posts.forEach(p => { p.text = p.orig; p.edited = false; });
+  saveEdits(); renderPosts(true);
+};
+
+/* ---------------------------------------------------------------------
+ * 편집 내용 저장 / 복원
+ * ------------------------------------------------------------------- */
+const LS_KEY = 'fbbook.v1';
+function editKey(p){ return p.ts + '|' + p.orig.slice(0, 60); }
+function saveEdits(){
+  try{
+    const edits = {};
+    for (const p of state.posts){
+      if (p.edited || !p.include) edits[editKey(p)] = { t: p.edited ? p.text : null, i: p.include };
+    }
+    localStorage.setItem(LS_KEY, JSON.stringify({ design: state.design, edits }));
+  }catch(e){}
+}
+function restoreEdits(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const { edits } = JSON.parse(raw);
+    if (!edits) return;
+    let n = 0;
+    for (const p of state.posts){
+      const e = edits[editKey(p)];
+      if (!e) continue;
+      if (e.t != null){ p.text = e.t; p.edited = true; }
+      if (e.i === false) p.include = false;
+      n++;
+    }
+    if (n) toast('이전에 편집한 내용 ' + n + '건을 복원했습니다');
+  }catch(e){}
+}
+
+$('#btnSaveProject').onclick = () => {
+  const data = {
+    _type:'fb-booklet-project', v:1, savedAt:new Date().toISOString(),
+    design: state.design,
+    posts: state.posts.map(p => ({
+      ts:p.ts, title:p.title, text:p.text, orig:p.orig, place:p.place,
+      links:p.links, media:p.media.map(m => m.uri), include:p.include, edited:p.edited
+    }))
+  };
+  const blob = new Blob([JSON.stringify(data, null, 1)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (state.design.title || '책자') + '-편집본.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  toast('편집본을 내려받았습니다 (사진은 포함되지 않습니다)');
+};
+$('#btnLoadProject').onclick = () => $('#projInput').click();
+$('#projInput').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try{
+    const d = JSON.parse(await f.text());
+    if (d._type !== 'fb-booklet-project') throw new Error('이 앱에서 저장한 편집본이 아닙니다');
+    Object.assign(state.design, d.design || {});
+    writeDesignToForm();
+    state.posts = (d.posts || []).map(p => makePost({
+      ts:p.ts, title:p.title||'', text:p.text||'', orig:p.orig||p.text||'',
+      place:p.place||'', links:p.links||[], include:p.include !== false, edited:!!p.edited,
+      media:(p.media||[]).map(u => ({ uri:u, desc:'' }))
+    }));
+    $$('.tab').forEach(t => t.disabled = false);
+    renderPosts(); showView('posts');
+    toast('편집본을 불러왔습니다. 사진을 쓰려면 ZIP도 함께 올려 주세요.', 4000);
+  }catch(err){ toast('열 수 없습니다: ' + err.message, 4000); }
+  e.target.value = '';
+});
+
+/* ---------------------------------------------------------------------
+ * 3단계 — 디자인 폼
+ * ------------------------------------------------------------------- */
+const DESIGN_FIELDS = {
+  dTitle:'title', dSubtitle:'subtitle', dAuthor:'author', dCover:'cover',
+  dSize:'size', dOrient:'orient', dMargin:'margin', dGutter:'gutter', dCols:'cols',
+  dFont:'font', dFs:'fs', dLh:'lh', dIndent:'indent',
+  dChapter:'chapter', dPostBreak:'postBreak', dDateFmt:'dateFmt', dPageNum:'pageNum',
+  dToc:'toc', dRunHead:'runHead', dSep:'sep', dMeta:'meta', dTitleLine:'titleLine',
+  dImpose:'impose', dImg:'img', dImgW:'imgW', dImgMax:'imgMax', dImgCap:'imgCap'
+};
+const NUMERIC = new Set(['margin','gutter','cols','fs','lh','imgW','imgMax']);
+
+function readDesignFromForm(){
+  for (const id in DESIGN_FIELDS){
+    const el = $('#'+id); if (!el) continue;
+    const key = DESIGN_FIELDS[id];
+    let v = el.type === 'checkbox' ? el.checked : el.value;
+    if (NUMERIC.has(key)) v = parseFloat(v);
+    state.design[key] = v;
+  }
+  $('#oMargin').value = state.design.margin;
+  $('#oGutter').value = state.design.gutter;
+  $('#oFs').value     = state.design.fs;
+  $('#oLh').value     = state.design.lh;
+  $('#oImgW').value   = state.design.imgW;
+  saveEdits();
+}
+function writeDesignToForm(){
+  for (const id in DESIGN_FIELDS){
+    const el = $('#'+id); if (!el) continue;
+    const v = state.design[DESIGN_FIELDS[id]];
+    if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+  }
+  $('#oMargin').value = state.design.margin;
+  $('#oGutter').value = state.design.gutter;
+  $('#oFs').value     = state.design.fs;
+  $('#oLh').value     = state.design.lh;
+  $('#oImgW').value   = state.design.imgW;
+}
+
+state.design = Object.assign({}, DEFAULT_DESIGN);
+try{
+  const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+  if (saved.design) Object.assign(state.design, saved.design);
+}catch(e){}
+writeDesignToForm();
+
+Object.keys(DESIGN_FIELDS).forEach(id => {
+  const el = $('#'+id); if (!el) return;
+  el.addEventListener('input', () => { readDesignFromForm(); scheduleRelayout(); });
+  el.addEventListener('change', () => { readDesignFromForm(); scheduleRelayout(); });
+});
+$('#btnResetDesign').onclick = () => {
+  state.design = Object.assign({}, DEFAULT_DESIGN);
+  writeDesignToForm(); saveEdits(); scheduleRelayout();
+  toast('기본값으로 되돌렸습니다');
+};
+
+let relayoutTimer = null;
+function scheduleRelayout(){
+  if (!$('#tab-preview').classList.contains('active')) return;
+  clearTimeout(relayoutTimer);
+  relayoutTimer = setTimeout(() => buildBook(), 350);
+}
+
+/* ---------------------------------------------------------------------
+ * 조판 — 페이지 단위 배치
+ * ------------------------------------------------------------------- */
+let PX_PER_MM = 96 / 25.4;
+(function calibrate(){
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;visibility:hidden;height:100mm;width:1mm';
+  document.body.appendChild(probe);
+  const h = probe.getBoundingClientRect().height;
+  if (h > 10) PX_PER_MM = h / 100;
+  probe.remove();
+})();
+
+function geometry(d){
+  let [w,h] = PAPER[d.size] || PAPER.a5;
+  if (d.orient === 'landscape') [w,h] = [h,w];
+  const headH = d.runHead ? 7 : 0;
+  const footH = d.pageNum === 'none' ? 0 : 8;
+  const contentW = w - d.margin * 2 - d.gutter;
+  const contentH = h - d.margin * 2 - headH - footH;
+  const gap = 6;
+  const cols = d.cols;
+  const colW = (contentW - gap * (cols - 1)) / cols;
+  return {
+    wMM:w, hMM:h, headH, footH, contentW, contentH, gap, cols, colW,
+    colWpx: colW * PX_PER_MM, colHpx: contentH * PX_PER_MM
+  };
+}
+
+function chapterLabel(ts, mode){
+  if (!ts || mode === 'none') return null;
+  const d = new Date(ts);
+  if (mode === 'year')  return d.getFullYear() + '년';
+  return d.getFullYear() + '년 ' + (d.getMonth()+1) + '월';
+}
+
+/* 게시물 → 원자(atom) 목록. 각 원자는 쪼개지지 않는 최소 배치 단위. */
+async function buildAtoms(posts, d, geo, onProgress){
+  const atoms = [];
+  let lastChapter = null;
+  const imgWpx = geo.colWpx * (d.imgW / 100);
+
+  for (let i = 0; i < posts.length; i++){
+    if ((i & 63) === 0 && onProgress){ onProgress(i, posts.length); await yieldToUI(); }
+    const p = posts[i];
+    const ch = chapterLabel(p.ts, d.chapter);
+    if (ch && ch !== lastChapter){
+      lastChapter = ch;
+      atoms.push({ type:'chapter', chapter:ch, breakBefore:true,
+        html:`<div class="b-chapter"><div class="t">${escapeHtml(ch)}</div><div class="l"></div></div>` });
+    } else if (d.postBreak === 'page' && i > 0){
+      atoms.push({ type:'pagebreak', chapter:lastChapter, breakBefore:true, html:'' });
+    }
+
+    const dateStr = fmtDate(p.ts, d.dateFmt);
+    const headBits = [];
+    // 페이스북의 title은 "○○님이 게시물을 공유했습니다" 같은 자동 문구라
+    // 본문이 없을 때(사진만 있는 글)나 사용자가 켰을 때만 넣는다.
+    const useTitle = p.title && (d.titleLine || !p.text.trim());
+    if (useTitle) headBits.push('<span class="h">' + escapeHtml(p.title) + '</span>');
+    if (dateStr) headBits.push(escapeHtml(dateStr));
+    if (headBits.length){
+      atoms.push({ type:'ptitle', chapter:lastChapter, postId:p.id, tocTitle:tocTitleOf(p, dateStr),
+        keepNext:true, html:'<div class="b-ptitle">' + headBits.join('') + '</div>' });
+    }
+
+    const paras = String(p.text || '').split(/\n{2,}|\n/).map(s => s.trim()).filter(Boolean);
+    for (let k = 0; k < paras.length; k++){
+      atoms.push({
+        type:'para', chapter:lastChapter, postId:p.id,
+        text: paras[k],
+        indent: d.indent === 'yes' && k > 0,
+        tocTitle: (!headBits.length && k === 0) ? tocTitleOf(p, dateStr) : null,
+        html: paraHtml(paras[k], d.indent === 'yes' && k > 0)
+      });
+    }
+
+    if (d.img === 'yes' && p.media.length){
+      let n = 0;
+      for (const m of p.media){
+        if (n >= d.imgMax) break;
+        const url = await mediaURL(m.uri);
+        if (!url) continue;
+        const sz = await imgSize(url);
+        if (!sz) continue;
+        n++;
+        let w = imgWpx, hgt = imgWpx * (sz.h / sz.w);
+        const maxH = geo.colHpx * 0.86;
+        if (hgt > maxH){ const s = maxH / hgt; hgt *= s; w *= s; }
+        const cap = (d.imgCap && m.desc) ? '<div class="cap">' + escapeHtml(m.desc) + '</div>' : '';
+        atoms.push({ type:'image', chapter:lastChapter, postId:p.id,
+          html:'<div class="b-fig"><img src="' + url + '" style="width:' + w.toFixed(1) +
+               'px;height:' + hgt.toFixed(1) + 'px" alt="">' + cap + '</div>' });
+      }
+    }
+
+    if (d.meta){
+      const bits = [];
+      if (p.place) bits.push('📍 ' + escapeHtml(p.place));
+      for (const l of (p.links || [])) bits.push('🔗 ' + escapeHtml(l.name || l.url));
+      if (bits.length) atoms.push({ type:'meta', chapter:lastChapter, postId:p.id,
+        html:'<div class="b-meta">' + bits.join('&nbsp;&nbsp;·&nbsp;&nbsp;') + '</div>' });
+    }
+
+    const last = i === posts.length - 1;
+    if (!last){
+      atoms.push({ type: d.sep ? 'rule' : 'space', chapter:lastChapter,
+        html: d.sep ? '<div class="b-rule"><i></i></div>' : '<div class="b-space"></div>' });
+    }
+  }
+  return atoms;
+}
+
+function tocTitleOf(p, dateStr){
+  // 본문 첫머리를 제목처럼 쓴다. 본문이 없을 때만 페이스북 자동 문구로 대체.
+  const t = ((p.text || '').trim() || p.title || '').replace(/\s+/g,' ').trim();
+  const head = t ? t.slice(0, 34) + (t.length > 34 ? '…' : '')
+                 : (p.media.length ? '(사진)' : '(내용 없음)');
+  return dateStr ? dateStr + ' · ' + head : head;
+}
+function paraHtml(text, indent){
+  return '<div class="b-para' + (indent ? ' indent' : '') + '">' + escapeHtml(text) + '</div>';
+}
+
+/* 측정기 */
+let measurer = null;
+function setupMeasurer(bookEl, geo){
+  if (!measurer){ measurer = document.createElement('div'); measurer.className = 'col measure'; }
+  if (measurer.parentElement !== bookEl) bookEl.appendChild(measurer);
+  measurer.style.width = geo.colWpx + 'px';
+  return measurer;
+}
+function measure(html){
+  measurer.innerHTML = html;
+  // 주의: 미리보기 확대(zoom)가 걸린 상태에서 재면 값이 배율만큼 어긋난다.
+  // buildBook()이 조판 동안 zoom을 1로 되돌려 두므로 여기서는 그대로 읽는다.
+  return measurer.getBoundingClientRect().height;
+}
+
+/* 긴 문단을 남은 높이에 맞춰 두 조각으로 나눈다 */
+function splitPara(atom, availPx){
+  const src = atom.text;
+  const units = src.split(/(\s+)/);       // 공백 보존
+  const canSplit = units.filter(u => u.trim()).length > 1;
+  const chars = Array.from(src);
+
+  const build = n => paraHtml(
+    (canSplit ? units.slice(0, n).join('') : chars.slice(0, n).join('')), atom.indent);
+  const total = canSplit ? units.length : chars.length;
+
+  let lo = 1, hi = total, best = 0;
+  while (lo <= hi){
+    const mid = (lo + hi) >> 1;
+    if (measure(build(mid)) <= availPx){ best = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  if (!best) return null;
+  const headTxt = (canSplit ? units.slice(0, best).join('') : chars.slice(0, best).join('')).trimEnd();
+  const tailTxt = (canSplit ? units.slice(best).join('')     : chars.slice(best).join('')).trimStart();
+  if (!headTxt || !tailTxt) return null;
+  return [
+    Object.assign({}, atom, { text:headTxt, html:paraHtml(headTxt, atom.indent), tocTitle:atom.tocTitle }),
+    Object.assign({}, atom, { text:tailTxt, html:paraHtml(tailTxt, atom.indent), tocTitle:null, indent:false })
+  ];
+}
+
+/* 원자들을 칼럼(=페이지 조각)에 흘려 넣는다 */
+async function flow(atoms, geo, startPageNo, onProgress){
+  const cells = [[]];
+  const used  = [0];
+  let cur = 0;
+  const starts = {};    // postId → 페이지 번호
+  const chapterOf = {}; // 페이지 인덱스 → 장 이름
+  const opensCh = {};   // 페이지 인덱스 → 장이 시작하는 페이지인가
+
+  const newCell = () => { cells.push([]); used.push(0); cur = cells.length - 1; };
+  const pageIdxOf = cellIdx => Math.floor(cellIdx / geo.cols);
+  const atPageStart = () => (cur % geo.cols === 0) && used[cur] === 0;
+  const pageBreak = () => {
+    if (atPageStart()) return;
+    while (cells.length % geo.cols !== 0) newCell();
+    newCell();
+  };
+
+  for (let i = 0; i < atoms.length; i++){
+    if ((i & 511) === 0 && onProgress){ onProgress(i, atoms.length); await yieldToUI(); }
+    let a = atoms[i];
+    if (a.type === 'pagebreak'){ pageBreak(); continue; }
+    if (a.breakBefore) pageBreak();
+
+    let h = measure(a.html);
+    let avail = geo.colHpx - used[cur];
+
+    // 제목은 뒤 내용과 최소한 붙여 둔다
+    if (a.keepNext && h + geo.colHpx * 0.12 > avail && !atPageStart()){ newCell(); avail = geo.colHpx; }
+
+    if (h > avail){
+      if (a.type === 'para' && avail > geo.colHpx * 0.12){
+        const parts = splitPara(a, avail);
+        if (parts){
+          place(parts[0], measure(parts[0].html));
+          newCell();
+          atoms.splice(i + 1, 0, parts[1]);
+          continue;
+        }
+      }
+      if (used[cur] > 0) newCell();
+      h = measure(a.html);
+      // 한 칼럼보다 큰 문단은 반복해서 쪼갠다
+      while (h > geo.colHpx && a.type === 'para'){
+        const parts = splitPara(a, geo.colHpx);
+        if (!parts) break;
+        place(parts[0], measure(parts[0].html));
+        newCell();
+        a = parts[1];
+        h = measure(a.html);
+      }
+    }
+    place(a, h);
+  }
+
+  function place(a, h){
+    cells[cur].push(a);
+    used[cur] += h;
+    const pno = startPageNo + pageIdxOf(cur);
+    if (a.postId && starts[a.postId] === undefined && a.tocTitle) starts[a.postId] = { page:pno, title:a.tocTitle };
+    const pi = pageIdxOf(cur);
+    if (a.chapter && chapterOf[pi] === undefined) chapterOf[pi] = a.chapter;
+    if (a.type === 'chapter') opensCh[pi] = true;
+  }
+
+  // 칼럼을 페이지로 묶기
+  const pages = [];
+  for (let i = 0; i < cells.length; i += geo.cols){
+    const cols = cells.slice(i, i + geo.cols);
+    while (cols.length < geo.cols) cols.push([]);
+    pages.push({ cols, chapter: chapterOf[pages.length] || null,
+                 chapterOpen: !!opensCh[pages.length] });
+  }
+  // 완전히 빈 마지막 페이지 제거
+  while (pages.length > 1 && pages[pages.length-1].cols.every(c => !c.length)) pages.pop();
+  return { pages, starts };
+}
+
+function pageHTML(page, no, d, geo, showNum){
+  const insideLeft = (no % 2 === 0);   // 짝수쪽은 안쪽이 오른쪽
+  const padL = (insideLeft ? d.margin : d.margin + d.gutter);
+  const padR = (insideLeft ? d.margin + d.gutter : d.margin);
+  const cols = page.cols.map(c =>
+    '<div class="col">' + c.map(a => a.html).join('') + '</div>').join('');
+
+  const head = (d.runHead && !page.chapterOpen)
+    ? '<div class="rh" style="height:' + geo.headH + 'mm">' +
+        '<span>' + (no % 2 === 0 ? escapeHtml(d.title) : escapeHtml(page.chapter || '')) + '</span>' +
+        '<span>' + (no % 2 === 0 ? escapeHtml(page.chapter || '') : escapeHtml(d.title)) + '</span>' +
+      '</div>'
+    : (d.runHead ? '<div class="rh" style="height:' + geo.headH + 'mm"></div>' : '');
+
+  const pfCls = d.pageNum === 'center' ? 'center' : (no % 2 === 0 ? 'outer-l' : 'outer-r');
+  const foot = d.pageNum === 'none' ? '' :
+    '<div class="pf ' + pfCls + '" style="height:' + geo.footH + 'mm">' +
+      (showNum ? no : '') + '</div>';
+
+  return '<div class="page" style="width:' + geo.wMM + 'mm;height:' + geo.hMM + 'mm">' +
+    '<div class="page-inner" style="padding:' + d.margin + 'mm ' + padR + 'mm ' + d.margin + 'mm ' + padL + 'mm">' +
+      head +
+      '<div class="cols" style="gap:' + geo.gap + 'mm">' + cols + '</div>' +
+      foot +
+    '</div></div>';
+}
+
+function coverHTML(d, geo, imgUrl){
+  const img = (d.cover === 'photo' && imgUrl) ? '<img class="cimg" src="' + imgUrl + '" alt="">' : '';
+  return '<div class="page" style="width:' + geo.wMM + 'mm;height:' + geo.hMM + 'mm">' +
+    '<div class="page-inner" style="padding:' + d.margin + 'mm">' +
+      '<div class="cover">' + img +
+        '<div class="ct">' + escapeHtml(d.title || '') + '</div>' +
+        (d.subtitle ? '<div class="cs">' + escapeHtml(d.subtitle) + '</div>' : '') +
+        '<div class="cl"></div>' +
+        (d.author ? '<div class="ca">' + escapeHtml(d.author) + '</div>' : '') +
+        '<div class="cd">' + new Date().getFullYear() + '</div>' +
+      '</div>' +
+    '</div></div>';
+}
+
+function tocAtoms(starts, order){
+  const items = order.map(id => starts[id]).filter(Boolean);
+  const atoms = [{ type:'tocH', html:'<div class="b-toc-h">목차</div>', chapter:'목차' }];
+  for (const it of items){
+    atoms.push({ type:'toc', chapter:'목차',
+      html:'<div class="b-toc"><span class="tt">' + escapeHtml(it.title) +
+           '</span><span class="dots"></span><span class="pp">' + it.page + '</span></div>' });
+  }
+  return atoms;
+}
+
+let buildSeq = 0;
+async function buildBook(){
+  const my = ++buildSeq;                 // 조판 도중 설정이 바뀌면 이전 작업은 버린다
+  const stale = () => my !== buildSeq;
+  const d = state.design;
+  const book = $('#book');
+  const posts = state.posts.filter(p => p.include);
+  if (!posts.length){
+    book.innerHTML = '<div style="padding:40px;color:var(--muted)">선택된 글이 없습니다. 2단계에서 글을 골라 주세요.</div>';
+    $('#pvInfo').textContent = '—';
+    return;
+  }
+
+  $('#pvInfo').textContent = '조판 중…';
+  book.style.zoom = 1;              // 배율이 걸린 채로 높이를 재면 조판이 어긋난다
+  await new Promise(r => requestAnimationFrame(r));
+
+  const geo = geometry(d);
+  book.style.setProperty('--fs', d.fs + 'pt');
+  book.style.setProperty('--lh', d.lh);
+  book.style.setProperty('--ff', d.font === 'sans' ? FONTS.sans : FONTS.serif);
+  setupMeasurer(book, geo);
+
+  const setStatus = t => { $('#pvInfo').textContent = t; };
+  const atoms = await buildAtoms(posts, d, geo,
+    (i, n) => setStatus('사진·본문 준비 중… ' + i + ' / ' + n));
+  if (stale()) return;
+  const coverPages = d.cover === 'none' ? 0 : 1;
+
+  // 목차 쪽수는 본문 쪽수에 영향을 주므로 안정될 때까지 반복
+  let tocPages = d.toc ? 1 : 0;
+  let body = null, toc = null;
+  for (let iter = 0; iter < 4; iter++){
+    body = await flow(atoms.map(a => Object.assign({}, a)), geo, coverPages + tocPages + 1,
+      (i, n) => setStatus('조판 중… ' + Math.round(i / n * 100) + '%'));
+    if (!d.toc){ toc = null; break; }
+    const order = posts.map(p => p.id);
+    toc = await flow(tocAtoms(body.starts, order), geo, coverPages + 1);
+    if (stale()) return;
+    if (toc.pages.length === tocPages) break;
+    tocPages = toc.pages.length;
+  }
+
+  let coverImg = null;
+  if (d.cover === 'photo'){
+    for (const p of posts){
+      if (p.media.length){ coverImg = await mediaURL(p.media[0].uri); if (coverImg) break; }
+    }
+  }
+  if (stale()) return;
+
+  const out = [];
+  let no = 1;
+  if (coverPages){ out.push(coverHTML(d, geo, coverImg)); no++; }
+  if (toc) for (const pg of toc.pages){ out.push(pageHTML(pg, no, d, geo, false)); no++; }
+  for (const pg of body.pages){ out.push(pageHTML(pg, no, d, geo, true)); no++; }
+  const total = no - 1;
+
+  const imposed = d.impose === 'booklet';
+  book.classList.toggle('imposed', imposed);
+  book.innerHTML = imposed ? imposeBooklet(out, geo) : out.join('');
+  setupMeasurer(book, geo);
+  measurer.innerHTML = '';        // 마지막 측정 내용이 책 안에 남지 않도록 비운다
+  applyZoom();
+
+  state.lastLayout = { total };
+  const sheets = imposed ? Math.ceil(total / 4) : total;
+  $('#pvInfo').textContent =
+    posts.length.toLocaleString() + '개 글 · 총 ' + total + '쪽 · ' + geo.wMM + '×' + geo.hMM + 'mm' +
+    (imposed ? ' → 중철 소책자 ' + (geo.wMM * 2) + '×' + geo.hMM + 'mm 용지 ' +
+               sheets + '장(양면)' : '');
+}
+
+/* 중철(saddle stitch) 모아찍기: 접어서 포개면 쪽 순서가 맞도록 재배열 */
+function imposeBooklet(pages, geo){
+  const blank = '<div class="page blank" style="width:' + geo.wMM + 'mm;height:' + geo.hMM + 'mm"></div>';
+  const p = pages.slice();
+  while (p.length % 4 !== 0) p.push(blank);
+  const n = p.length;
+  const at = i => p[i - 1];                       // 1-based 쪽 번호
+  const sheet = (l, r) =>
+    '<div class="sheet" style="width:' + (geo.wMM * 2) + 'mm;height:' + geo.hMM + 'mm">' +
+      at(l) + at(r) + '<div class="fold"></div></div>';
+  const out = [];
+  for (let k = 0; k < n / 4; k++){
+    out.push(sheet(n - 2*k, 1 + 2*k));            // 앞면
+    out.push(sheet(2 + 2*k, n - 1 - 2*k));        // 뒷면
+  }
+  return out.join('');
+}
+
+/* 확대 — transform 대신 zoom을 쓴다(레이아웃에 반영돼 스크롤이 정상 동작) */
+function applyZoom(){
+  const z = parseInt($('#zoom').value, 10) / 100;
+  $('#oZoom').textContent = Math.round(z * 100) + '%';
+  $('#book').style.zoom = z;
+}
+$('#zoom').addEventListener('input', applyZoom);
+
+$('#btnPrint').onclick = () => {
+  $('#book').style.zoom = 1;
+  setTimeout(() => {
+    window.print();
+    setTimeout(applyZoom, 400);
+  }, 60);
+};
+$('#btnRelayout').onclick = () => buildBook();
+
+/* ---------------------------------------------------------------------
+ * 탭 이동
+ * ------------------------------------------------------------------- */
+function showView(name){
+  $$('.view').forEach(v => v.classList.toggle('active', v.id === 'tab-' + name));
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
+  window.scrollTo({ top:0, behavior:'instant' in window ? 'instant' : 'auto' });
+  if (name === 'preview') buildBook();
+  if (name === 'posts')   renderPosts(true);
+}
+$('#tabs').addEventListener('click', e => {
+  const b = e.target.closest('.tab');
+  if (!b || b.disabled) return;
+  showView(b.dataset.view);
+});
+$('#btnGoPosts').onclick   = () => showView('posts');
+$('#btnGoDesign').onclick  = () => showView('design');
+$('#btnGoPreview').onclick = () => showView('preview');
+
+window.addEventListener('beforeprint', () => { $('#book').style.zoom = 1; });
+window.addEventListener('afterprint',  () => applyZoom());
+</script>
+</body>
+</html>
