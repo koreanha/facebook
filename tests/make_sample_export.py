@@ -45,15 +45,46 @@ for i, t in enumerate(TEXTS):
     p["title"] = fb_escape("홍길동님이 게시물을 공유했습니다.")
     posts.append(p)
 
-# 두 개 파일로 나뉜 경우까지 재현
+def photo(n, desc, title=""):
+    """앨범/미사용 사진 JSON 안의 사진 항목 (게시물과 형태가 다르다)."""
+    p = {"uri": "your_facebook_activity/posts/media/photo_%d.png" % n,
+         "creation_timestamp": ts + n * 86400 * 11,
+         "media_metadata": {"photo_metadata": {"exif_data": [{"upload_ip": "0.0.0.0"}]}},
+         "description": fb_escape(desc)}
+    if title:
+        p["title"] = fb_escape(title)
+    return p
+
+# 앨범 JSON — 사진이 게시물 파일이 아니라 여기 들어 있는 경우가 많다
+album = {
+    "name": fb_escape("여행 사진첩"),
+    "photos": [photo(4, "속초에서 본 일출."), photo(5, "돌아오는 길."),
+               photo(2, "강릉 안목해변 파도.")],  # photo_2 는 게시물에도 붙어 있음 (중복 제거 확인용)
+    "cover_photo": photo(4, ""),
+    "last_modified_timestamp": ts,
+    "description": "",
+}
+# 앨범에 속하지 않는 사진
+uncategorized = {"other_photos_v2": [photo(6, "고양이."), photo(7, "")]}
+# ZIP 안에 파일이 없는 사진 (내보내기가 여러 개로 쪼개진 상황 재현)
+missing = {"other_photos_v2": [{"uri": "your_facebook_activity/posts/media/not_in_zip.png",
+                               "creation_timestamp": ts, "description": fb_escape("빠진 사진.")}]}
+
 with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as z:
-    z.writestr("facebook-testuser-2026/your_facebook_activity/posts/your_posts__check_ins__photos_and_videos_1.json",
+    base = "facebook-testuser-2026/your_facebook_activity/posts/"
+    # 게시물이 여러 파일로 나뉜 경우까지 재현
+    z.writestr(base + "your_posts__check_ins__photos_and_videos_1.json",
                json.dumps(posts[:4], ensure_ascii=False).encode("latin-1", "replace"))
-    z.writestr("facebook-testuser-2026/your_facebook_activity/posts/your_posts__check_ins__photos_and_videos_2.json",
+    z.writestr(base + "your_posts__check_ins__photos_and_videos_2.json",
                json.dumps(posts[4:], ensure_ascii=False).encode("latin-1", "replace"))
-    for i, c in ((1, (220, 90, 80)), (2, (70, 130, 200)), (3, (120, 180, 110))):
-        z.writestr("facebook-testuser-2026/your_facebook_activity/posts/media/photo_%d.png" % i,
-                   png(400, 260 + i * 40, c))
+    z.writestr(base + "album/0.json", json.dumps(album, ensure_ascii=False).encode("latin-1", "replace"))
+    z.writestr(base + "your_uncategorized_photos.json",
+               json.dumps(uncategorized, ensure_ascii=False).encode("latin-1", "replace"))
+    z.writestr(base + "your_photos_missing.json",
+               json.dumps(missing, ensure_ascii=False).encode("latin-1", "replace"))
+    for i, c in ((1, (220, 90, 80)), (2, (70, 130, 200)), (3, (120, 180, 110)),
+                 (4, (240, 170, 60)), (5, (150, 110, 190)), (6, (90, 190, 180)), (7, (200, 200, 90))):
+        z.writestr(base + "media/photo_%d.png" % i, png(400, 260 + i * 20, c))
     z.writestr("facebook-testuser-2026/your_facebook_activity/comments/comments.json",
                json.dumps({"comments_v2": []}).encode())
 print("wrote", OUT, os.path.getsize(OUT), "bytes")

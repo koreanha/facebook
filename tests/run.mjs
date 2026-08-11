@@ -64,12 +64,24 @@ console.log('\n[1] 내보내기 ZIP 불러오기');
 await page.setInputFiles('#fileInput', ZIP);
 await page.waitForFunction(() => document.querySelector('#stats').style.display === '', null, { timeout: 30000 });
 
+const loadLog = await page.textContent('#loadLog');
 await page.click('.tab[data-view="posts"]');
 await page.waitForSelector('.post');
 const first = await page.inputValue('.post .txt');
-ok('게시물을 찾음', (await page.locator('.post').count()) === 6);
+const bodies = await page.$$eval('.post .txt', els => els.map(e => e.value));
+
+// 글 6 + 앨범 3(그중 1장은 게시물에 이미 붙어 있어 제외) + 미분류 2 + ZIP에 없는 사진 1
+ok('게시물을 찾음', (await page.locator('.post').count()) === 11,
+   (await page.locator('.post').count()) + '개');
 ok('한글 모지바케 복구', first.startsWith('봄이 왔다고'), first.slice(0, 24));
-ok('ZIP 안의 사진 추출', (await page.locator('.post .thumbs img').count()) === 3);
+ok('앨범 JSON 안의 사진도 인식', bodies.includes('속초에서 본 일출.'));
+ok('미분류 사진도 인식', bodies.includes('고양이.'));
+ok('게시물에 이미 붙은 앨범 사진은 중복으로 넣지 않음',
+   !bodies.includes('강릉 안목해변 파도.'));
+ok('ZIP 안의 사진 추출', (await page.locator('.post .thumbs img').count()) === 7,
+   (await page.locator('.post .thumbs img').count()) + '장');
+ok('ZIP에 없는 사진은 자리 표시로', (await page.locator('.post .thumbs .ph').count()) === 1);
+ok('빠진 사진을 로그로 알림', /⚠ 1장은 올린 파일 안에 없습니다/.test(loadLog));
 ok('장소 정보 파싱', (await page.locator('.post .badge', { hasText: '강릉' }).count()) > 0);
 
 /* ---------------------------------------------------------- 2. 조판 */
@@ -103,13 +115,19 @@ const toc = await page.evaluate(() => {
   const pages = [...document.querySelectorAll('#book .page')];
   const foot  = pages.map(p => (p.querySelector('.pf') || {}).textContent || '');
   return [...document.querySelectorAll('.b-toc')].map(t => {
-    const n   = t.querySelector('.pp').textContent;
-    const key = t.querySelector('.tt').textContent.split(' · ').pop().replace(/…$/, '').slice(0, 12);
-    const i   = foot.indexOf(n);
-    return { n, key, hit: i >= 0 && pages[i].textContent.includes(key) };
+    const n     = t.querySelector('.pp').textContent;
+    const title = t.querySelector('.tt').textContent;
+    const date  = title.split(' · ')[0];
+    const tail  = title.split(' · ').slice(1).join(' · ').replace(/…$/, '').slice(0, 12);
+    const i     = foot.indexOf(n);
+    // 설명 없는 사진은 목차에 "(사진)"으로만 나오므로 본문 대조는 날짜로 한다
+    const body  = i >= 0 ? pages[i].textContent : '';
+    const hit = i >= 0 && body.includes(date) &&
+                (/^\(.*\)$/.test(tail) || body.includes(tail));
+    return { n, key: date + ' · ' + tail, hit };
   });
 });
-ok('목차 항목이 모두 생성됨', toc.length === 6, toc.length + '개');
+ok('목차 항목이 모두 생성됨', toc.length === 11, toc.length + '개');
 ok('모든 목차 쪽수가 정확', toc.every(t => t.hit),
    toc.filter(t => !t.hit).map(t => t.n + ':' + t.key).join(', ') || '전부 일치');
 ok('페이스북 자동 문구가 제목으로 새지 않음', !toc.some(t => /님이 게시물을/.test(t.key)));
