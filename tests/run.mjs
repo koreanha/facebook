@@ -16,6 +16,7 @@ import { chromium } from 'playwright';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +35,36 @@ const ok   = (name, cond, extra = '') => {
   if (!cond) failures++;
 };
 
+/* ZIP 중앙 디렉터리만 읽어 항목 목록을 얻는다 (검증용 최소 구현) */
+function unzipNames(buf){
+  const map = new Map();
+  let p = buf.length - 22;
+  while (p >= 0 && buf.readUInt32LE(p) !== 0x06054b50) p--;
+  if (p < 0) return map;
+  let o = buf.readUInt32LE(p + 16);
+  const n = buf.readUInt16LE(p + 10);
+  for (let i = 0; i < n; i++){
+    if (buf.readUInt32LE(o) !== 0x02014b50) break;
+    const method = buf.readUInt16LE(o + 10);
+    const cSize  = buf.readUInt32LE(o + 20);
+    const nameLen = buf.readUInt16LE(o + 28);
+    const extLen  = buf.readUInt16LE(o + 30);
+    const comLen  = buf.readUInt16LE(o + 32);
+    const lho     = buf.readUInt32LE(o + 42);
+    const name = buf.toString('utf8', o + 46, o + 46 + nameLen);
+    map.set(name, { method, cSize, lho });
+    o += 46 + nameLen + extLen + comLen;
+  }
+  return map;
+}
+function readEntry(buf, map, name){
+  const e = map.get(name);
+  if (!e) return '';
+  const nl = buf.readUInt16LE(e.lho + 26), el = buf.readUInt16LE(e.lho + 28);
+  const at = e.lho + 30 + nl + el;
+  const raw = buf.subarray(at, at + e.cSize);
+  return (e.method === 8 ? zlib.inflateRawSync(raw) : raw).toString('utf8');
+}
 const server = http.createServer((req, res) => {
   const rel = decodeURIComponent(req.url.split('?')[0]);
   const file = path.join(ROOT, rel === '/' ? 'index.html' : rel);
@@ -50,7 +81,14 @@ const browser = await chromium.launch({
   executablePath: fs.existsSync(exe) ? exe : undefined,
   args: ['--no-sandbox']
 });
-const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+const context = await browser.newContext({ viewport: { width: 1400, height: 1000 }, acceptDownloads: true });
+const page = await context.newPage();
+/* 실제 XML 파서로 적합성을 확인한다 (node에는 파서가 없으므로 브라우저를 쓴다) */
+const wellFormed = txt => page.evaluate(t => {
+  const doc = new DOMParser().parseFromString(t, 'application/xml');
+  const err = doc.querySelector('parsererror');
+  return err ? err.textContent.slice(0, 120) : true;
+}, txt);
 const errors = [];
 page.on('pageerror', e => errors.push(String(e.message)));
 page.on('console', m => {
@@ -102,11 +140,25 @@ for (const [label, opts] of [
   ['A5 1단',  { '#dSize':'a5', '#dCols':'1', '#dImpose':'none' }],
   ['A4 2단',  { '#dSize':'a4', '#dCols':'2' }],
   ['B5 1단 · 글마다 새 페이지', { '#dSize':'b5', '#dCols':'1', '#dPostBreak':'page' }],
-  ['정사각 · 사진 없음', { '#dSize':'square', '#dPostBreak':'flow', '#dImg':'no' }]
+  ['정사각 · 사진 없음', { '#dSize':'square', '#dPostBreak':'flow', '#dImg':'no' }],
+  ['A5 · 글 하나를 한 쪽에', { '#dSize':'a5', '#dPostBreak':'fit', '#dImg':'yes' }]
 ]){
   await layout(opts);
   ok(label, (await overflowing()) === 0, await page.textContent('#pvInfo'));
 }
+
+/* ------------------------------------------------- 2b. 한 쪽에 한 글 */
+console.log('\n[2b] 글 하나가 한 쪽을 차지하는가');
+await layout({ '#dSize':'a5', '#dCols':'1', '#dPostBreak':'fit' });
+const fit = await page.evaluate(() => {
+  const heads = [...document.querySelectorAll('#book .page')]
+    .map(p => p.querySelectorAll('.b-ptitle').length);
+  return { heads, withHead: heads.filter(n => n > 0).length, maxPerPage: Math.max(...heads) };
+});
+ok('한 쪽에 글은 하나씩만', fit.maxPerPage === 1, '가장 많은 쪽에 ' + fit.maxPerPage + '개');
+ok('모든 글이 자기 쪽에서 시작', fit.withHead === 11, fit.withHead + '개 쪽이 글로 시작');
+ok('넘친 글은 경고로 알림', /정해진 쪽수를 넘겨/.test(await page.textContent('#pvInfo')),
+   await page.textContent('#pvInfo'));
 
 /* ---------------------------------------------------------- 3. 목차 */
 console.log('\n[3] 목차 쪽수가 실제 본문 위치와 일치');
@@ -159,6 +211,60 @@ await page.pdf({ path: pdf, preferCSSPageSize: true, printBackground: true });
 await page.emulateMedia({ media: 'screen' });
 ok('PDF 생성', fs.statSync(pdf).size > 20000, fs.statSync(pdf).size + ' bytes');
 fs.unlinkSync(pdf);
+
+/* ---------------------------------------------------------- 5b. 내보내기 */
+console.log('\n[5b] 편집용 파일 내보내기');
+await layout({ '#dSize':'a5', '#dCols':'1', '#dPostBreak':'fit' });
+const pageCount = await page.locator('#book .page').count();
+
+async function grab(fmt){
+  await page.click('#btnExport');
+  const [dl] = await Promise.all([
+    page.waitForEvent('download', { timeout: 180000 }),
+    page.click('.xitem[data-fmt="' + fmt + '"]')
+  ]);
+  const f = path.join(HERE, 'tmp-' + fmt);
+  await dl.saveAs(f);
+  const buf = fs.readFileSync(f);
+  fs.unlinkSync(f);
+  return buf;
+}
+
+const docx = await grab('docx');
+const dz = unzipNames(docx);
+ok('Word 파일이 만들어짐', docx.length > 5000, docx.length + ' bytes');
+ok('필수 부품이 모두 있음',
+   ['[Content_Types].xml','_rels/.rels','word/document.xml','word/styles.xml',
+    'word/_rels/document.xml.rels'].every(n => dz.has(n)),
+   [...dz.keys()].slice(0, 6).join(', '));
+ok('사진이 들어 있음', [...dz.keys()].some(n => n.startsWith('word/media/')),
+   [...dz.keys()].filter(n => n.startsWith('word/media/')).length + '장');
+const docXml = readEntry(docx, dz, 'word/document.xml');
+const docOk = await wellFormed(docXml);
+ok('document.xml 이 올바른 XML', docOk === true, docOk === true ? '' : docOk);
+ok('한글이 살아 있음', docXml.includes('봄이 왔다고'));
+ok('쪽 나누기가 들어감', docXml.includes('pageBreakBefore'));
+const stylesXml = readEntry(docx, dz, 'word/styles.xml');
+ok('w:pPr 자식 순서가 스키마대로', !/<w:jc[^>]*\/><w:spacing/.test(stylesXml));
+
+const svgzip = await grab('svg');
+const sz = unzipNames(svgzip);
+const svgs = [...sz.keys()].filter(n => n.endsWith('.svg'));
+ok('쪽 수만큼 SVG가 나옴', svgs.length === pageCount, svgs.length + ' / ' + pageCount);
+const oneSvg = readEntry(svgzip, sz, svgs[Math.min(5, svgs.length - 1)]);
+const svgOk = await wellFormed(oneSvg);
+ok('SVG 가 올바른 XML', svgOk === true, svgOk === true ? '' : svgOk);
+ok('글줄이 개별 개체로', (oneSvg.match(/<text /g) || []).length > 3,
+   (oneSvg.match(/<text /g) || []).length + '개');
+const withImg = svgs.map(n => readEntry(svgzip, sz, n)).filter(t => t.includes('<image '));
+ok('사진이 SVG 안에 심어짐', withImg.some(t => t.includes('xlink:href="data:image/')),
+   withImg.length + '개 쪽에 사진');
+
+const html = await grab('html');
+const htmlText = html.toString('utf8');
+ok('HTML 이 만들어짐', /<!doctype html>/i.test(htmlText), html.length + ' bytes');
+ok('사진이 파일 안에 담김', htmlText.includes('src="data:image/'));
+ok('쪽이 모두 담김', (htmlText.match(/class="page"/g) || []).length === pageCount);
 
 /* ---------------------------------------------------------- 6. 오류 */
 console.log('\n[6] 콘솔');
